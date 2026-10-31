@@ -1,4 +1,16 @@
-import { Parser } from 'node-sql-parser';
+import NodeSqlParser from 'node-sql-parser';
+
+type ParserConstructor = new () => {
+  astify: (sql: string, opt?: unknown) => unknown;
+  sqlify: (ast: unknown, opt?: unknown) => string;
+  tableList: (sql: string, opt?: unknown) => string[];
+  columnList: (sql: string, opt?: unknown) => string[];
+};
+
+const ParserClass: ParserConstructor =
+  (NodeSqlParser as unknown as { Parser: ParserConstructor }).Parser ??
+  (NodeSqlParser as unknown as { default: { Parser: ParserConstructor } }).default?.Parser ??
+  (NodeSqlParser as unknown as ParserConstructor);
 
 export type SqlStatementType =
   | 'SELECT'
@@ -49,7 +61,7 @@ const DANGEROUS_IDENTIFIERS: ReadonlyArray<{ pattern: RegExp; label: string }> =
   { pattern: /^\s*copy\b/i, label: 'COPY command' },
 ];
 
-const parser = new Parser();
+const parser = new ParserClass();
 
 /**
  * Strips comments and string literals to safely inspect top-level SQL tokens and semicolons.

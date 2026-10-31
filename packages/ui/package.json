@@ -1,0 +1,31 @@
+{
+  "name": "@datapilot/ui",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./styles/tokens.css": "./styles/tokens.css",
+    "./styles/fonts.css": "./styles/fonts.css",
+    "./styles/base.css": "./styles/base.css",
+    "./styles/components.css": "./styles/components.css",
+    "./config/tailwind.preset.js": "./config/tailwind.preset.js",
+    "./config/chart-theme": "./config/chart-theme.ts",
+    "./config/monaco-theme-datapilot-light.json": "./config/monaco-theme-datapilot-light.json",
+    "./config/monaco-theme-datapilot-dark.json": "./config/monaco-theme-datapilot-dark.json"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.3"
+  }
+}
+

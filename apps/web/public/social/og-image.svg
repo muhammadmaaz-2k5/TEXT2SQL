@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" fill="none">
+  <rect width="1200" height="630" fill="#0B1220"/>
+  <g transform="translate(80 90) scale(1.5)">
+  <rect width="64" height="64" rx="16" fill="#2F5BFF"/>
+  <path d="M16 22v20c0 3.9 7.2 7 16 7s16-3.1 16-7V22" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M16 32c0 3.9 7.2 7 16 7s16-3.1 16-7" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>
+  <ellipse cx="32" cy="22" rx="16" ry="7" fill="#FFB020"/>
+</g>
+  <text x="80" y="330" font-family="Bricolage Grotesque, Inter, Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="-2" fill="#fff">Talk to your</text>
+  <text x="80" y="425" font-family="Bricolage Grotesque, Inter, Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="-2" fill="#fff">database.</text>
+  <text x="80" y="500" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="30" fill="#98A2B3">Ask in English. Get SQL, charts and answers.</text>
+  <text x="80" y="570" font-family="Bricolage Grotesque, Inter, Arial, sans-serif" font-size="28" font-weight="700" fill="#FFB020">DataPilot AI</text>
+  <g transform="translate(700 150) scale(0.55)"><g transform="scale(1)">
+  <rect width="900" height="420" rx="24" fill="#0B1220"/>
+  <rect x="30" y="40" width="270" height="150" rx="16" fill="#121C30" stroke="#243049"/>
+  <text x="50" y="72" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="12" fill="#98A2B3">You ask</text>
+  <text x="50" y="102" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="15" font-weight="500" fill="#F2F4F7">Top 10 customers by</text>
+  <text x="50" y="124" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="15" font-weight="500" fill="#F2F4F7">spending in the last</text>
+  <text x="50" y="146" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="15" font-weight="500" fill="#F2F4F7">6 months</text>
+  <rect x="50" y="160" width="2" height="18" fill="#2F5BFF"/>
+  <path d="M305 115h60" stroke="#2F5BFF" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2 7"/>
+  <circle cx="336" cy="115" r="22" fill="#2F5BFF"/>
+  <path d="M336 104l2.6 6.4 6.4 2.6-6.4 2.6-2.6 6.4-2.6-6.4-6.4-2.6 6.4-2.6 2.6-6.4z" fill="#fff"/>
+  <rect x="30" y="215" width="330" height="165" rx="16" fill="#0A101C"/>
+  <circle cx="52" cy="237" r="4.5" fill="#F04438"/><circle cx="68" cy="237" r="4.5" fill="#FFB020"/><circle cx="84" cy="237" r="4.5" fill="#12B76A"/>
+  <g font-family="JetBrains Mono, Consolas, monospace" font-size="13">
+    <text x="50" y="272" fill="#7A9BFF">SELECT <tspan fill="#E4E7EC">c.name,</tspan></text>
+    <text x="50" y="294" fill="#E4E7EC">  <tspan fill="#FFB020">SUM</tspan>(o.amount) <tspan fill="#7A9BFF">AS</tspan> spend</text>
+    <text x="50" y="316" fill="#7A9BFF">FROM <tspan fill="#E4E7EC">customers c</tspan></text>
+    <text x="50" y="338" fill="#7A9BFF">JOIN <tspan fill="#E4E7EC">orders o ON ...</tspan></text>
+    <text x="50" y="360" fill="#7A9BFF">ORDER BY <tspan fill="#E4E7EC">spend DESC LIMIT 10;</tspan></text>
+  </g>
+  <path d="M365 297h60" stroke="#2F5BFF" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2 7"/>
+  <rect x="440" y="40" width="430" height="340" rx="18" fill="#121C30" stroke="#243049"/>
+  <text x="466" y="76" font-family="Bricolage Grotesque, Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#F2F4F7">Revenue by customer</text>
+  <rect x="466" y="92" width="86" height="22" rx="11" fill="#12B76A" fill-opacity=".16"/>
+  <text x="480" y="107" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="11" font-weight="600" fill="#12B76A">Read-only</text>
+  <g><rect x="560" y="200" width="22" height="50" rx="5" fill="#2F5BFF"/><rect x="594" y="170" width="22" height="80" rx="5" fill="#2F5BFF"/><rect x="628" y="188" width="22" height="62" rx="5" fill="#2F5BFF"/><rect x="662" y="130" width="22" height="120" rx="5" fill="#FFB020"/><rect x="696" y="160" width="22" height="90" rx="5" fill="#2F5BFF"/><rect x="730" y="180" width="22" height="70" rx="5" fill="#2F5BFF"/></g>
+  <path d="M540 252H800" stroke="#243049"/>
+  <g font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="12" fill="#98A2B3">
+    <text x="466" y="290">Ahmed</text><text x="466" y="314">John</text><text x="466" y="338">Sara</text>
+  </g>
+  <g font-family="JetBrains Mono, Consolas, monospace" font-size="12" fill="#F2F4F7" text-anchor="end">
+    <text x="840" y="290">$12,821</text><text x="840" y="314">$9,281</text><text x="840" y="338">$8,291</text>
+  </g>
+  <path d="M466 350h374" stroke="#243049"/>
+  <text x="466" y="368" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="11" fill="#98A2B3">Query ran in 0.7 s · 10 rows</text>
+</g></g>
+</svg>

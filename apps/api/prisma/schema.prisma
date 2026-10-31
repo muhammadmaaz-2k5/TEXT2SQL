@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  DEVELOPER
+  VIEWER
+}
+
+enum DatabaseEngine {
+  POSTGRESQL
+  MYSQL
+  SQLITE
+  CSV
+}
+
+enum ConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PROVISIONING
+}
+
+model User {
+  id                   String               @id @default(uuid())
+  email                String               @unique
+  name                 String
+  passwordHash         String?
+  avatarUrl            String?
+  activeOrganizationId String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  memberships          OrganizationMember[]
+  oauthAccounts        OAuthAccount[]
+  refreshTokens        RefreshToken[]
+  queryHistory         QueryHistory[]
+}
+
+model OAuthAccount {
+  id                String   @id @default(uuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Organization {
+  id          String               @id @default(uuid())
+  name        String
+  slug        String               @unique
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  members     OrganizationMember[]
+  databases   DatabaseConnection[]
+  dashboards  Dashboard[]
+  apiKeys     ApiKey[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  role           OrgRole      @default(DEVELOPER)
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model DatabaseConnection {
+  id                  String           @id @default(uuid())
+  organizationId      String
+  name                String
+  engine              DatabaseEngine   @default(POSTGRESQL)
+  isManaged           Boolean          @default(false)
+  host                String
+  port                Int              @default(5432)
+  databaseName        String
+  username            String
+  encryptedCredential String
+  sslMode             String           @default("prefer")
+  readOnlyDefault     Boolean          @default(true)
+  status              ConnectionStatus @default(CONNECTED)
+  tableCount          Int              @default(0)
+  lastSyncedAt        DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  queries             QueryHistory[]
+  dashboards          Dashboard[]
+}
+
+model QueryHistory {
+  id             String             @id @default(uuid())
+  organizationId String
+  databaseId     String
+  userId         String
+  prompt         String?
+  sql            String
+  explanation    String?
+  chartSpecJson  String?
+  rowCount       Int                @default(0)
+  durationMs     Int                @default(0)
+  isSaved        Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  database       DatabaseConnection @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Dashboard {
+  id             String             @id @default(uuid())
+  organizationId String
+  databaseId     String
+  name           String
+  description    String?
+  shareToken     String?            @unique
+  widgetsJson    String             @default("[]")
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  database       DatabaseConnection @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+}
+
+model ApiKey {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String
+  keyPrefix      String
+  keyHash        String       @unique
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+

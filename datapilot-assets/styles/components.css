@@ -1,0 +1,61 @@
+/* Buttons */
+.dp-btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:var(--radius-md);border:1px solid transparent;font:500 var(--fs-sm)/1 var(--font-body);cursor:pointer;transition:background .15s,border-color .15s}
+.dp-btn svg{width:18px;height:18px}
+.dp-btn--primary{background:var(--brand);color:#fff} .dp-btn--primary:hover{background:var(--brand-hover)}
+.dp-btn--accent{background:var(--accent);color:#101828} .dp-btn--accent:hover{background:var(--dp-amber-400)}
+.dp-btn--secondary{background:var(--surface);color:var(--text);border-color:var(--border)} .dp-btn--secondary:hover{background:var(--surface-2)}
+.dp-btn--ghost{background:transparent;color:var(--text-muted)} .dp-btn--ghost:hover{background:var(--surface-2);color:var(--text)}
+.dp-btn--danger{background:var(--dp-danger);color:#fff}
+.dp-btn[disabled]{opacity:.5;cursor:not-allowed}
+.dp-btn--sm{height:32px;padding:0 12px}
+
+/* Inputs */
+.dp-input,.dp-select,.dp-textarea{width:100%;height:40px;padding:0 12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-md);font:var(--fs-sm) var(--font-body)}
+.dp-textarea{height:auto;padding:12px;min-height:96px}
+.dp-input:focus,.dp-select:focus,.dp-textarea:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 4px var(--ring)}
+.dp-label{display:block;margin-bottom:6px;font-size:var(--fs-sm);font-weight:500}
+
+/* Card / panel */
+.dp-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-5);box-shadow:var(--shadow-sm)}
+
+/* Badges */
+.dp-badge{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:var(--radius-pill);font-size:var(--fs-xs);font-weight:600}
+.dp-badge--readonly{background:rgba(18,183,106,.14);color:#0B8A50}
+.dp-badge--write{background:rgba(247,144,9,.16);color:#B54708}
+.dp-badge--danger{background:rgba(240,68,56,.14);color:#B42318}
+.dp-badge--engine{background:var(--dp-blue-50);color:var(--dp-blue-700)}
+:root[data-theme="dark"] .dp-badge--engine{background:rgba(95,131,255,.16);color:var(--dp-blue-300)}
+
+/* AI prompt bar */
+.dp-prompt{display:flex;gap:8px;align-items:center;padding:8px 8px 8px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-md)}
+.dp-prompt:focus-within{border-color:var(--brand);box-shadow:0 0 0 4px var(--ring)}
+.dp-prompt input{flex:1;border:0;background:transparent;color:var(--text);font:var(--fs-base) var(--font-body);outline:none}
+
+/* Code / SQL block */
+.dp-code{background:var(--code-bg);color:var(--code-text);padding:16px 20px;border-radius:var(--radius-md);overflow:auto;font-family:var(--font-mono);font-size:13px;line-height:1.7}
+.dp-code .kw{color:#7A9BFF} .dp-code .fn{color:var(--dp-amber-500)} .dp-code .str{color:#6CE9A6} .dp-code .num{color:#FDA29B} .dp-code .cm{color:#667085}
+
+/* Result table */
+.dp-table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+.dp-table th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-weight:600;padding:10px 14px;border-bottom:1px solid var(--border)}
+.dp-table td{padding:10px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:13px}
+.dp-table tr:hover td{background:var(--surface-2)}
+
+/* KPI tile */
+.dp-kpi{display:flex;flex-direction:column;gap:4px}
+.dp-kpi__label{font-size:var(--fs-sm);color:var(--text-muted)}
+.dp-kpi__value{font:700 var(--fs-3xl)/1 var(--font-display);letter-spacing:-.02em}
+.dp-kpi__delta--up{color:var(--dp-success)} .dp-kpi__delta--down{color:var(--dp-danger)}
+
+/* Sidebar nav */
+.dp-nav a{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--radius-md);color:var(--text-muted);text-decoration:none;font-size:var(--fs-sm);font-weight:500}
+.dp-nav a:hover{background:var(--surface-2);color:var(--text)}
+.dp-nav a[aria-current="page"]{background:var(--dp-blue-50);color:var(--dp-blue-700)}
+:root[data-theme="dark"] .dp-nav a[aria-current="page"]{background:rgba(95,131,255,.16);color:var(--dp-blue-300)}
+.dp-nav svg{width:18px;height:18px}
+
+/* Typing indicator for AI */
+.dp-thinking{display:inline-flex;gap:4px}
+.dp-thinking i{width:6px;height:6px;border-radius:50%;background:var(--brand);animation:dp-b 1s infinite ease-in-out}
+.dp-thinking i:nth-child(2){animation-delay:.15s}.dp-thinking i:nth-child(3){animation-delay:.3s}
+@keyframes dp-b{0%,80%,100%{opacity:.25;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}

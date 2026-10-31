@@ -1,0 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  '@prisma/engines': true
+  '@scarf/scarf': true
+  esbuild: true
+  prisma: true
+
+ignoredBuiltDependencies:
+  - "@prisma/engines"
+  - "@scarf/scarf"
+  - "esbuild"
+  - "prisma"

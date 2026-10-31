@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 72" width="270" height="72" fill="none">
+  <g transform="translate(0 0) scale(0.875)">
+  <rect width="64" height="64" rx="16" fill="#2F5BFF"/>
+  <path d="M16 22v20c0 3.9 7.2 7 16 7s16-3.1 16-7V22" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M16 32c0 3.9 7.2 7 16 7s16-3.1 16-7" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>
+  <ellipse cx="32" cy="22" rx="16" ry="7" fill="#FFB020"/>
+</g>
+  <text x="72" y="34" font-family="Bricolage Grotesque, Inter, Arial, sans-serif" font-weight="700" font-size="26" letter-spacing="-0.5" fill="#FFFFFF">DataPilot<tspan font-weight="500" fill="#FFB020"> AI</tspan></text>
+  <text x="72" y="62" font-family="IBM Plex Sans, Inter, Arial, sans-serif" font-size="13" fill="#98A2B3">Talk to your database</text>
+</svg>

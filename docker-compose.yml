@@ -1,0 +1,59 @@
+name: datapilot-ai
+
+services:
+  postgres-meta:
+    image: postgres:16-alpine
+    container_name: datapilot-postgres-meta
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: datapilot
+      POSTGRES_PASSWORD: datapilot_secret
+      POSTGRES_DB: datapilot_meta
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_meta_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datapilot -d datapilot_meta"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-managed:
+    image: postgres:16-alpine
+    container_name: datapilot-postgres-managed
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dp_provisioner
+      POSTGRES_PASSWORD: dp_provisioner_secret
+      POSTGRES_DB: shop_analytics
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_managed_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dp_provisioner -d shop_analytics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: datapilot-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_meta_data:
+  postgres_managed_data:
+  redis_data:
+

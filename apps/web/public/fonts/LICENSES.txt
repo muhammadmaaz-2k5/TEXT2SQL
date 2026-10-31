@@ -1,0 +1,6 @@
+Bricolage Grotesque - SIL Open Font License 1.1
+IBM Plex Sans - SIL Open Font License 1.1
+JetBrains Mono - SIL Open Font License 1.1
+
+All three are free for commercial use, embedding and redistribution.
+Source packages: @fontsource-variable/bricolage-grotesque, @fontsource/ibm-plex-sans, @fontsource/jetbrains-mono (npm).

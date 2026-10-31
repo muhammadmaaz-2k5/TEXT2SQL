@@ -1,0 +1,12 @@
+@import "./fonts.css";
+@import "./tokens.css";
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:var(--fs-base);line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--font-display);letter-spacing:-.02em;line-height:1.15;margin:0 0 .5em;font-weight:700}
+h1{font-size:var(--fs-5xl)} h2{font-size:var(--fs-4xl)} h3{font-size:var(--fs-2xl)} h4{font-size:var(--fs-xl)}
+p{margin:0 0 1em;max-width:70ch}
+a{color:var(--brand);text-underline-offset:3px}
+code,kbd,pre{font-family:var(--font-mono);font-size:.9em}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}

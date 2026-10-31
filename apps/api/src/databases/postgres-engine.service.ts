@@ -289,9 +289,7 @@ export class PostgresEngineService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-    // Warm up the default demo databases so schema introspection is instant
-    await this.ensureLocalPgDatabase('shop_analytics', 'shop_analytics');
-    await this.ensureLocalPgDatabase('billing_prod', 'saas_metrics');
+    // Lazy on-demand initialization: do not block port binding or spike container memory on boot
   }
 
   async ensureLocalPgDatabase(
@@ -302,6 +300,19 @@ export class PostgresEngineService implements OnModuleInit {
     const existing = this.pgliteInstances.get(safeName);
     if (existing) {
       return existing;
+    }
+
+    // Keep active in-memory instances capped to 2 to stay well under container memory limits
+    if (this.pgliteInstances.size >= 2) {
+      const oldestKey = this.pgliteInstances.keys().next().value;
+      if (oldestKey) {
+        try {
+          await this.pgliteInstances.get(oldestKey)?.close();
+        } catch {
+          // ignore close errors
+        }
+        this.pgliteInstances.delete(oldestKey);
+      }
     }
 
     const dbDir = path.join(this.pgliteBaseDir, safeName);

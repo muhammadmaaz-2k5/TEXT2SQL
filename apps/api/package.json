@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js",
+    "start": "node --max-old-space-size=384 dist/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "tsx src/auth/auth.spec.ts",

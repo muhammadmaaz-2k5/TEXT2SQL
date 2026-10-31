@@ -41,7 +41,19 @@ import type {
 } from '@datapilot/types';
 import { useAppStore } from './store';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+function getApiBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (
+    typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1'
+  ) {
+    return 'https://text2sql-djo8.onrender.com/api/v1';
+  }
+  return 'http://localhost:4000/api/v1';
+}
 
 export class ApiRequestError extends Error {
   public readonly statusCode: number;
@@ -69,7 +81,8 @@ async function request<T>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const apiBase = getApiBaseUrl();
+  const response = await fetch(`${apiBase}${endpoint}`, {
     ...options,
     headers,
     credentials: 'include',
@@ -77,7 +90,7 @@ async function request<T>(
 
   if (response.status === 401 && !retried && !endpoint.startsWith('/auth/')) {
     try {
-      const refreshRes = await fetch(`${API_BASE}/auth/refresh`, {
+      const refreshRes = await fetch(`${apiBase}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
       });

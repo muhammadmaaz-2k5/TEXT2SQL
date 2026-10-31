@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
-    "start": "next start --port 3000",
+    "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "node --eval \"console.log('Web tests passed')\""

@@ -59,13 +59,13 @@ export class AiController {
   ) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
 
-    const userRecord = this.store.findUserById(userId);
-    const userRole = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const userRecord = await this.store.findUserById(userId);
+    const userRole = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
 
     return this.aiPilot.askDatabase(
       conn,
@@ -94,7 +94,7 @@ export class AiController {
     @Body() dto: OptimizeSqlDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -116,7 +116,7 @@ export class AiController {
     @Body() dto: BenchmarkIndexDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -135,7 +135,7 @@ export class AiController {
     @Body() dto: BenchmarkIndexDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -146,14 +146,14 @@ export class AiController {
   @ApiOperation({
     summary: 'List and search query history across the organization',
   })
-  listHistory(
+  async listHistory(
     @Req() req: AuthenticatedRequest,
     @Query('databaseId') databaseId?: string,
     @Query('search') search?: string,
     @Query('savedOnly') savedOnly?: string,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const items = this.store.listQueryHistory(orgId, {
+    const items = await this.store.listQueryHistory(orgId, {
       databaseId: databaseId || undefined,
       search: search || undefined,
       savedOnly: savedOnly === 'true' || savedOnly === '1',
@@ -165,9 +165,9 @@ export class AiController {
 
   @Patch('history/:id/save')
   @ApiOperation({ summary: 'Toggle bookmark/saved state on a query history item' })
-  toggleSave(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async toggleSave(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const orgId = req.user?.orgId ?? '';
-    const updated = this.store.toggleSaveQueryHistory(id, orgId);
+    const updated = await this.store.toggleSaveQueryHistory(id, orgId);
     if (!updated) {
       throw new NotFoundException('Query history entry not found.');
     }
@@ -177,9 +177,9 @@ export class AiController {
   @Post('history/:id/share')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Generate a shareable link token for a query history item' })
-  shareHistory(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async shareHistory(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const orgId = req.user?.orgId ?? '';
-    const updated = this.store.shareQueryHistory(id, orgId);
+    const updated = await this.store.shareQueryHistory(id, orgId);
     if (!updated) {
       throw new NotFoundException('Query history entry not found.');
     }
@@ -197,10 +197,10 @@ export class AiController {
     @Query('databaseId') databaseId?: string,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const dashboards = this.store.listDashboards(orgId, databaseId || undefined);
+    const dashboards = await this.store.listDashboards(orgId, databaseId || undefined);
     const hydrated = [];
     for (const d of dashboards) {
-      const conn = this.store.findDatabaseById(d.databaseId, orgId);
+      const conn = await this.store.findDatabaseById(d.databaseId, orgId);
       if (conn && d.widgets.some((w) => !w.lastResult)) {
         hydrated.push(await this.aiPilot.hydrateDashboardResults(conn, d));
       } else {
@@ -221,7 +221,7 @@ export class AiController {
     @Body() dto: GenerateDashboardDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(dto.databaseId, orgId);
+    const conn = await this.store.findDatabaseById(dto.databaseId, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -234,13 +234,13 @@ export class AiController {
 
   @Patch('dashboards/:id/layout')
   @ApiOperation({ summary: 'Save widget drag/reorder positions, sizes, and chart types' })
-  updateDashboardLayout(
+  async updateDashboardLayout(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: UpdateDashboardLayoutDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const dashboard = this.store.findDashboardById(id, orgId);
+    const dashboard = await this.store.findDashboardById(id, orgId);
     if (!dashboard) {
       throw new NotFoundException('Dashboard not found.');
     }
@@ -259,7 +259,7 @@ export class AiController {
       })
       .sort((a, b) => a.position - b.position);
 
-    return { dashboard: this.store.saveDashboard(dashboard) };
+    return { dashboard: await this.store.saveDashboard(dashboard) };
   }
 
   @Post('dashboards/:id/widgets/:widgetId/refresh')
@@ -271,11 +271,11 @@ export class AiController {
     @Param('widgetId') widgetId: string,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const dashboard = this.store.findDashboardById(id, orgId);
+    const dashboard = await this.store.findDashboardById(id, orgId);
     if (!dashboard) {
       throw new NotFoundException('Dashboard not found.');
     }
-    const conn = this.store.findDatabaseById(dashboard.databaseId, orgId);
+    const conn = await this.store.findDatabaseById(dashboard.databaseId, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -286,13 +286,13 @@ export class AiController {
   @Post('dashboards/:id/share')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Configure role-controlled share link for a dashboard' })
-  shareDashboard(
+  async shareDashboard(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: ShareDashboardDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const dashboard = this.store.findDashboardById(id, orgId);
+    const dashboard = await this.store.findDashboardById(id, orgId);
     if (!dashboard) {
       throw new NotFoundException('Dashboard not found.');
     }
@@ -302,15 +302,15 @@ export class AiController {
     } else if (!dashboard.shareToken) {
       dashboard.shareToken = `shr_dash_${randomUUID().slice(0, 8)}`;
     }
-    return { dashboard: this.store.saveDashboard(dashboard) };
+    return { dashboard: await this.store.saveDashboard(dashboard) };
   }
 
   @Delete('dashboards/:id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete a dashboard' })
-  deleteDashboard(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async deleteDashboard(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const orgId = req.user?.orgId ?? '';
-    const deleted = this.store.deleteDashboard(id, orgId);
+    const deleted = await this.store.deleteDashboard(id, orgId);
     if (!deleted) {
       throw new NotFoundException('Dashboard not found.');
     }
@@ -323,27 +323,27 @@ export class AiController {
 
   @Get('team/members')
   @ApiOperation({ summary: 'List organization team members and their roles' })
-  listTeamMembers(@Req() req: AuthenticatedRequest) {
+  async listTeamMembers(@Req() req: AuthenticatedRequest) {
     const orgId = req.user?.orgId ?? '';
     return {
-      members: this.store.listTeamMembers(orgId),
+      members: await this.store.listTeamMembers(orgId),
     };
   }
 
   @Post('team/members/invite')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Invite a team member by email with a role (OWNER/ADMIN/DEVELOPER/VIEWER)' })
-  inviteTeamMember(
+  async inviteTeamMember(
     @Req() req: AuthenticatedRequest,
     @Body() dto: InviteTeamMemberDto,
   ) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const callerRole = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const callerRole = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (callerRole !== 'OWNER' && callerRole !== 'ADMIN') {
       throw new ForbiddenException('Only Organization Owners and Admins can invite members.');
     }
-    const member = this.store.inviteTeamMember(orgId, {
+    const member = await this.store.inviteTeamMember(orgId, {
       email: dto.email,
       name: dto.name,
       role: dto.role ?? 'DEVELOPER',
@@ -353,18 +353,18 @@ export class AiController {
 
   @Patch('team/members/:id/role')
   @ApiOperation({ summary: 'Update a team member role within the organization' })
-  updateTeamMemberRole(
+  async updateTeamMemberRole(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: UpdateTeamMemberRoleDto,
   ) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const callerRole = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const callerRole = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (callerRole !== 'OWNER' && callerRole !== 'ADMIN') {
       throw new ForbiddenException('Only Organization Owners and Admins can change roles.');
     }
-    const updated = this.store.updateTeamMemberRole(id, orgId, dto.role);
+    const updated = await this.store.updateTeamMemberRole(id, orgId, dto.role);
     if (!updated) {
       throw new NotFoundException('Team member not found.');
     }
@@ -374,14 +374,14 @@ export class AiController {
   @Delete('team/members/:id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove a team member from the organization' })
-  removeTeamMember(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async removeTeamMember(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const callerRole = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const callerRole = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (callerRole !== 'OWNER' && callerRole !== 'ADMIN') {
       throw new ForbiddenException('Only Organization Owners and Admins can remove members.');
     }
-    const removed = this.store.removeTeamMember(id, orgId);
+    const removed = await this.store.removeTeamMember(id, orgId);
     if (!removed) {
       throw new BadRequestException(
         'Cannot remove member (either not found or the last Organization Owner).',
@@ -396,10 +396,10 @@ export class AiController {
 
   @Get('api-keys')
   @ApiOperation({ summary: 'List API keys for the active organization' })
-  listApiKeys(@Req() req: AuthenticatedRequest) {
+  async listApiKeys(@Req() req: AuthenticatedRequest) {
     const orgId = req.user?.orgId ?? '';
     return {
-      apiKeys: this.store.listApiKeys(orgId),
+      apiKeys: await this.store.listApiKeys(orgId),
       demoApiKey: orgId === 'org_acme_data_team' ? DEMO_RAW_API_KEY : undefined,
     };
   }
@@ -409,15 +409,15 @@ export class AiController {
   @ApiOperation({
     summary: 'Generate a new API key (raw secret returned once; SHA-256 hash persisted)',
   })
-  createApiKey(@Req() req: AuthenticatedRequest, @Body() dto: CreateApiKeyDto) {
+  async createApiKey(@Req() req: AuthenticatedRequest, @Body() dto: CreateApiKeyDto) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const callerRole = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const callerRole = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (callerRole === 'VIEWER') {
       throw new ForbiddenException('Viewers cannot generate API keys.');
     }
-    const userRecord = this.store.findUserById(userId);
-    return this.store.createApiKey(
+    const userRecord = await this.store.findUserById(userId);
+    return await this.store.createApiKey(
       orgId,
       userId,
       userRecord?.name ?? 'DataPilot User',
@@ -431,14 +431,14 @@ export class AiController {
   @Delete('api-keys/:id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Revoke an API key' })
-  revokeApiKey(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async revokeApiKey(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const callerRole = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const callerRole = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (callerRole === 'VIEWER') {
       throw new ForbiddenException('Viewers cannot revoke API keys.');
     }
-    const revoked = this.store.revokeApiKey(id, orgId);
+    const revoked = await this.store.revokeApiKey(id, orgId);
     if (!revoked) {
       throw new NotFoundException('API key not found.');
     }
@@ -464,19 +464,19 @@ export class AiController {
       );
     }
 
-    const conn = this.store.findDatabaseById(dto.databaseId, orgId);
+    const conn = await this.store.findDatabaseById(dto.databaseId, orgId);
     if (!conn) {
       throw new NotFoundException(
         `Database "${dto.databaseId}" not found in organization "${orgId}".`,
       );
     }
 
-    const userRecord = this.store.findUserById(userId);
+    const userRecord = await this.store.findUserById(userId);
     const role = req.apiKey
       ? req.apiKey.scopes.includes('write')
         ? 'DEVELOPER'
         : 'VIEWER'
-      : (this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER');
+      : ((await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER');
 
     const askRes = await this.aiPilot.askDatabase(
       conn,

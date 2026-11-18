@@ -454,7 +454,7 @@ export class StoreService implements OnModuleInit {
       port: db.port,
       databaseName: db.databaseName,
       username: db.username,
-      sslMode: db.sslMode,
+      sslMode: db.sslMode as DatabaseConnectionItem['sslMode'],
       readOnlyDefault: db.readOnlyDefault,
       status: db.status as DatabaseConnectionItem['status'],
       tableCount: db.tableCount,
@@ -554,7 +554,7 @@ export class StoreService implements OnModuleInit {
     if (filters?.savedOnly) where['isSaved'] = true;
 
     const items = await this.prisma.queryHistory.findMany({
-      where: where as Parameters<typeof this.prisma.queryHistory.findMany>[0]['where'],
+      where: where as any,
       include: { database: true, user: true },
       orderBy: { createdAt: 'desc' },
       take: 300,
@@ -704,8 +704,8 @@ export class StoreService implements OnModuleInit {
       databaseId: d.databaseId,
       databaseName: d.database.name,
       name: d.name,
-      description: d.description ?? undefined,
-      prompt: undefined,
+      description: d.description ?? '',
+      prompt: '',
       shareToken: d.shareToken,
       shareMinRole: 'VIEWER',
       createdAt: d.createdAt.toISOString(),

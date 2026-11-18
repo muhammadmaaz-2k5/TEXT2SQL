@@ -21,7 +21,7 @@ export class JwtAuthGuard implements CanActivate {
     @Inject(StoreService) private readonly store: StoreService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const rawHeaderKey = req.headers['x-api-key'];
     const xApiKey =
@@ -39,7 +39,7 @@ export class JwtAuthGuard implements CanActivate {
       xApiKey ?? (bearerToken?.startsWith('dp_live_') ? bearerToken : undefined);
 
     if (candidateApiKey) {
-      const verifiedKey = this.store.verifyApiKey(candidateApiKey);
+      const verifiedKey = await this.store.verifyApiKey(candidateApiKey);
       if (!verifiedKey) {
         throw new UnauthorizedException(
           'Invalid or revoked API key. Generate a new key in Workspace -> API Keys.',

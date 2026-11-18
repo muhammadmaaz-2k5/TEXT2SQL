@@ -8,6 +8,7 @@ import { AiPilotService } from '../ai/ai-pilot.service';
 import { AuthService } from './auth.service';
 import { CacheService } from '../common/cache.service';
 import { CryptoService } from '../common/crypto.service';
+import { PrismaService } from '../common/prisma.service';
 import { StoreService } from '../common/store.service';
 import { PostgresEngineService } from '../databases/postgres-engine.service';
 
@@ -36,16 +37,18 @@ async function runTests(): Promise<void> {
   assert.equal(crypto.verifyJwt(accessToken, 'refresh'), null);
 
   // 4. Store + AuthService integration
-  const store = new StoreService(crypto);
-  store.onModuleInit();
+  const prisma = new PrismaService();
+  await prisma.$connect();
+  const store = new StoreService(crypto, prisma);
+  await store.onModuleInit();
   const authService = new AuthService(store, crypto);
 
-  const demoIssued = authService.loginDemo();
+  const demoIssued = await authService.loginDemo();
   assert.equal(demoIssued.session.user.email, 'pilot@datapilot.ai');
   assert.ok(demoIssued.session.user.organizations.length >= 2);
 
   // 5. Refresh token rotation
-  const rotated = authService.refresh(demoIssued.refreshToken);
+  const rotated = await authService.refresh(demoIssued.refreshToken);
   assert.equal(rotated.session.user.email, 'pilot@datapilot.ai');
 
   // 6. Phase 2: PostgresEngineService connection test, introspection & migration
@@ -65,7 +68,7 @@ async function runTests(): Promise<void> {
   assert.equal(connTest.ok, true);
   assert.ok(connTest.tableCount >= 6);
 
-  const demoDb = store.findDatabaseById('db_shop_analytics', 'org_acme_data_team');
+  const demoDb = await store.findDatabaseById('db_shop_analytics', 'org_acme_data_team');
   assert.ok(demoDb);
 
   const snapshot = await pgEngine.getSchemaSnapshot(demoDb, true);
@@ -226,14 +229,14 @@ async function runTests(): Promise<void> {
   assert.equal(askPakistan.execution.result.rowCount, 7);
 
   // Query history search, save & share
-  const historyList = store.listQueryHistory('org_acme_data_team', {
+  const historyList = await store.listQueryHistory('org_acme_data_team', {
     search: 'Enterprise B2B',
   });
   assert.ok(historyList.length >= 1);
   const firstHist = historyList[0]!;
-  const savedHist = store.toggleSaveQueryHistory(firstHist.id, 'org_acme_data_team');
+  const savedHist = await store.toggleSaveQueryHistory(firstHist.id, 'org_acme_data_team');
   assert.equal(savedHist?.isSaved, true);
-  const sharedHist = store.shareQueryHistory(firstHist.id, 'org_acme_data_team');
+  const sharedHist = await store.shareQueryHistory(firstHist.id, 'org_acme_data_team');
   assert.ok(sharedHist?.shareToken?.startsWith('shr_'));
 
   // 9. Phase 5: Query Optimizer, Sandbox Index Benchmark, and AI Dashboards
@@ -272,7 +275,7 @@ async function runTests(): Promise<void> {
   );
   assert.ok(refreshedDash);
 
-  const sharedDash = store.saveDashboard({
+  const sharedDash = await store.saveDashboard({
     ...refreshedDash,
     shareToken: 'dash_shr_demo123',
     shareMinRole: 'VIEWER',
@@ -348,10 +351,10 @@ async function runTests(): Promise<void> {
   assert.ok(csvImported.schema.tables.some((t) => t.name === 'imported_b2b_leads'));
 
   // 11. Phase 7: Team RBAC, API Keys (SHA-256) & Public REST Query Verification
-  const initialMembers = store.listTeamMembers('org_acme_data_team');
+  const initialMembers = await store.listTeamMembers('org_acme_data_team');
   assert.ok(initialMembers.length >= 4);
 
-  const invitedMember = store.inviteTeamMember('org_acme_data_team', {
+  const invitedMember = await store.inviteTeamMember('org_acme_data_team', {
     email: 'devon.reyes@acme.dev',
     name: 'Devon Reyes',
     role: 'DEVELOPER',
@@ -359,18 +362,18 @@ async function runTests(): Promise<void> {
   assert.equal(invitedMember.role, 'DEVELOPER');
   assert.equal(invitedMember.status, 'INVITED');
 
-  const promotedMember = store.updateTeamMemberRole(
+  const promotedMember = await store.updateTeamMemberRole(
     invitedMember.id,
     'org_acme_data_team',
     'ADMIN',
   );
   assert.equal(promotedMember?.role, 'ADMIN');
 
-  const removedInvited = store.removeTeamMember(invitedMember.id, 'org_acme_data_team');
+  const removedInvited = await store.removeTeamMember(invitedMember.id, 'org_acme_data_team');
   assert.equal(removedInvited, true);
 
   // API Key creation, SHA-256 verification, usage counter, and revocation
-  const createdKey = store.createApiKey(
+  const createdKey = await store.createApiKey(
     'org_acme_data_team',
     'usr_demo_pilot',
     'Alex Rivera',
@@ -382,14 +385,14 @@ async function runTests(): Promise<void> {
   assert.ok(createdKey.rawSecretKey.startsWith('dp_live_'));
   assert.equal(createdKey.apiKey.requestCount, 0);
 
-  const verifiedKeyRecord = store.verifyApiKey(createdKey.rawSecretKey);
+  const verifiedKeyRecord = await store.verifyApiKey(createdKey.rawSecretKey);
   assert.ok(verifiedKeyRecord);
   assert.equal(verifiedKeyRecord.id, createdKey.apiKey.id);
   assert.equal(verifiedKeyRecord.requestCount, 1);
 
-  const revokedKey = store.revokeApiKey(createdKey.apiKey.id, 'org_acme_data_team');
+  const revokedKey = await store.revokeApiKey(createdKey.apiKey.id, 'org_acme_data_team');
   assert.ok(revokedKey?.revokedAt);
-  assert.equal(store.verifyApiKey(createdKey.rawSecretKey), null);
+  assert.equal(await store.verifyApiKey(createdKey.rawSecretKey), null);
 
   // 12. Full NestJS HTTP Integration Test under tsx (DI + ValidationPipe + AuthController)
   const app = await NestFactory.create(AppModule, { logger: false });
@@ -428,6 +431,7 @@ async function runTests(): Promise<void> {
     assert.equal(loginBody.user.email, 'pilot@datapilot.ai');
   } finally {
     await app.close();
+    await prisma.$disconnect();
   }
 
   console.log(

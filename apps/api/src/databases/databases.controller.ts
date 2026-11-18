@@ -52,10 +52,10 @@ export class DatabasesController {
 
   @Get()
   @ApiOperation({ summary: 'List database connections for the active organization' })
-  listDatabases(@Req() req: AuthenticatedRequest) {
+  async listDatabases(@Req() req: AuthenticatedRequest) {
     const orgId = req.user?.orgId ?? '';
     return {
-      databases: this.store.listDatabasesForOrg(orgId),
+      databases: await this.store.listDatabasesForOrg(orgId),
     };
   }
 
@@ -99,7 +99,7 @@ export class DatabasesController {
     }
 
     const encryptedPassword = this.crypto.encryptCredential(dto.password);
-    const created = this.store.createDatabaseConnection({
+    const created = await this.store.createDatabaseConnection({
       organizationId: orgId,
       name: dto.name.trim(),
       engine: dto.engine ?? 'POSTGRESQL',
@@ -144,7 +144,7 @@ export class DatabasesController {
 
     await this.pgEngine.ensureLocalPgDatabase(dbName, template);
 
-    const created = this.store.createDatabaseConnection({
+    const created = await this.store.createDatabaseConnection({
       organizationId: orgId,
       name: dto.name.trim(),
       engine: 'POSTGRESQL',
@@ -162,22 +162,23 @@ export class DatabasesController {
     });
 
     // Introspect immediately so cache and exact tableCount are populated
-    const stored = this.store.findDatabaseById(created.id, orgId);
+    const stored = await this.store.findDatabaseById(created.id, orgId);
     if (stored) {
       await this.pgEngine.getSchemaSnapshot(stored, true);
     }
 
+    const allDbs = await this.store.listDatabasesForOrg(orgId);
     return {
-      database: this.store.listDatabasesForOrg(orgId).find((d) => d.id === created.id) ?? created,
+      database: allDbs.find((d) => d.id === created.id) ?? created,
     };
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove a database connection from the organization' })
-  deleteDatabase(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async deleteDatabase(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const orgId = req.user?.orgId ?? '';
-    const removed = this.store.deleteDatabaseConnection(id, orgId);
+    const removed = await this.store.deleteDatabaseConnection(id, orgId);
     if (!removed) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -193,7 +194,7 @@ export class DatabasesController {
     @Query('refresh') refresh?: string,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -206,7 +207,7 @@ export class DatabasesController {
   @ApiOperation({ summary: 'Force re-introspect PostgreSQL schema and refresh Redis snapshot' })
   async syncSchema(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -218,13 +219,13 @@ export class DatabasesController {
   @ApiOperation({
     summary: 'Generate reviewed SQL migration script from visual Schema Designer definition',
   })
-  previewMigration(
+  async previewMigration(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: DesignerCreateTableDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -260,7 +261,7 @@ export class DatabasesController {
     @Body() dto: DesignerCreateTableDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -312,12 +313,12 @@ export class DatabasesController {
   ) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
 
-    const userRole = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const userRole = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     const response = await this.pgEngine.executeSafeQuery(conn, userRole, {
       sql: dto.sql,
       allowWrite: dto.allowWrite,
@@ -327,8 +328,8 @@ export class DatabasesController {
     });
 
     if (!response.requiresConfirmation && !response.validation.cached) {
-      const userRecord = this.store.findUserById(userId);
-      this.store.recordQueryHistory({
+      const userRecord = await this.store.findUserById(userId);
+      await this.store.recordQueryHistory({
         organizationId: orgId,
         databaseId: conn.id,
         databaseName: conn.name,
@@ -358,7 +359,7 @@ export class DatabasesController {
     @Body() dto: ExplainSqlDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -374,13 +375,13 @@ export class DatabasesController {
     summary:
       'Phase 6: Propose normalized PostgreSQL tables, columns, foreign keys, and indexes from a business description',
   })
-  proposeSchemaAi(
+  async proposeSchemaAi(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: SchemaAiProposeDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -399,11 +400,11 @@ export class DatabasesController {
   ) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const role = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const role = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (role === 'VIEWER') {
       throw new ForbiddenException('Viewer role cannot apply schema migrations.');
     }
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -423,11 +424,11 @@ export class DatabasesController {
   ) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const role = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const role = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (role === 'VIEWER' && !dto.previewOnly) {
       throw new ForbiddenException('Viewer role cannot insert seed data.');
     }
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -443,13 +444,13 @@ export class DatabasesController {
   @ApiOperation({
     summary: 'Phase 6: Infer PostgreSQL column types and preview rows from CSV data before import',
   })
-  previewCsvImport(
+  async previewCsvImport(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: CsvPreviewDto,
   ) {
     const orgId = req.user?.orgId ?? '';
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -471,11 +472,11 @@ export class DatabasesController {
   ) {
     const orgId = req.user?.orgId ?? '';
     const userId = req.user?.sub ?? '';
-    const role = this.store.getUserRoleInOrg(userId, orgId) ?? 'VIEWER';
+    const role = (await this.store.getUserRoleInOrg(userId, orgId)) ?? 'VIEWER';
     if (role === 'VIEWER') {
       throw new ForbiddenException('Viewer role cannot import CSV tables.');
     }
-    const conn = this.store.findDatabaseById(id, orgId);
+    const conn = await this.store.findDatabaseById(id, orgId);
     if (!conn) {
       throw new NotFoundException('Database connection not found.');
     }
@@ -486,4 +487,3 @@ export class DatabasesController {
     });
   }
 }
-

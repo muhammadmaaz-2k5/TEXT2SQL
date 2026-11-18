@@ -48,8 +48,8 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Sign in with email and password' })
-  login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const issued = this.authService.login(dto);
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const issued = await this.authService.login(dto);
     this.attachCookies(res, issued);
     return issued.session;
   }
@@ -57,8 +57,8 @@ export class AuthController {
   @Post('demo')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'One-click sign in to the pre-seeded Demo Workspace' })
-  loginDemo(@Res({ passthrough: true }) res: Response) {
-    const issued = this.authService.loginDemo();
+  async loginDemo(@Res({ passthrough: true }) res: Response) {
+    const issued = await this.authService.loginDemo();
     this.attachCookies(res, issued);
     return issued.session;
   }
@@ -66,8 +66,8 @@ export class AuthController {
   @Post('signup')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new account and default organization' })
-  signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response) {
-    const issued = this.authService.signup(dto);
+  async signup(@Body() dto: SignupDto, @Res({ passthrough: true }) res: Response) {
+    const issued = await this.authService.signup(dto);
     this.attachCookies(res, issued);
     return issued.session;
   }
@@ -75,11 +75,11 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Rotate refresh token and issue a fresh access token' })
-  refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const refreshToken = (req.cookies as Record<string, string | undefined> | undefined)?.[
       'dp_refresh_token'
     ];
-    const issued = this.authService.refresh(refreshToken);
+    const issued = await this.authService.refresh(refreshToken);
     this.attachCookies(res, issued);
     return issued.session;
   }
@@ -87,11 +87,11 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Revoke refresh token and clear httpOnly session cookies' })
-  logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const refreshToken = (req.cookies as Record<string, string | undefined> | undefined)?.[
       'dp_refresh_token'
     ];
-    this.authService.logout(refreshToken);
+    await this.authService.logout(refreshToken);
     res.clearCookie('dp_access_token', { path: '/' });
     res.clearCookie('dp_refresh_token', { path: '/' });
     return { success: true };
@@ -110,25 +110,24 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get authenticated user profile and organizations' })
-  me(@Req() req: AuthenticatedRequest) {
+  async me(@Req() req: AuthenticatedRequest) {
     const userId = req.user?.sub ?? '';
     return {
-      user: this.authService.getProfile(userId),
+      user: await this.authService.getProfile(userId),
     };
   }
 
   @Patch('active-org')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Switch active organization for current session' })
-  switchOrg(
+  async switchOrg(
     @Req() req: AuthenticatedRequest,
     @Body() dto: SwitchOrganizationDto,
     @Res({ passthrough: true }) res: Response,
   ) {
     const userId = req.user?.sub ?? '';
-    const issued = this.authService.switchOrganization(userId, dto.organizationId);
+    const issued = await this.authService.switchOrganization(userId, dto.organizationId);
     this.attachCookies(res, issued);
     return issued.session;
   }
 }
-

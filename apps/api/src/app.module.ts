@@ -6,6 +6,7 @@ import { JwtAuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { CacheService } from './common/cache.service';
 import { CryptoService } from './common/crypto.service';
+import { PrismaService } from './common/prisma.service';
 import { StoreService } from './common/store.service';
 import { DatabasesController } from './databases/databases.controller';
 import { PostgresEngineService } from './databases/postgres-engine.service';
@@ -17,6 +18,7 @@ import { HealthController } from './health/health.controller';
   providers: [
     CryptoService,
     CacheService,
+    PrismaService,
     StoreService,
     AuthService,
     JwtAuthGuard,

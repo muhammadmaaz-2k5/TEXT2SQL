@@ -668,7 +668,7 @@ export class AiPilotService {
     }
 
     // 5. Record in QueryHistory
-    const recorded = this.store.recordQueryHistory({
+    const recorded = await this.store.recordQueryHistory({
       organizationId: conn.organizationId,
       databaseId: conn.id,
       databaseName: conn.name,
@@ -825,7 +825,7 @@ export class AiPilotService {
       ...dashboard,
       widgets: updatedWidgets,
     };
-    return this.store.saveDashboard(hydrated);
+    return await this.store.saveDashboard(hydrated);
   }
 
   /**
@@ -861,7 +861,7 @@ export class AiPilotService {
       widgets: updatedWidgets,
       updatedAt: now,
     };
-    return this.store.saveDashboard(updated);
+    return await this.store.saveDashboard(updated);
   }
 
   /**

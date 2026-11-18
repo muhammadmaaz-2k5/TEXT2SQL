@@ -1,8 +1,5 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { MongoClient } from 'mongodb';
+import { Injectable, OnModuleInit, Inject } from '@nestjs/common';
 import type {
   ApiKeyItem,
   AuthUser,
@@ -17,6 +14,7 @@ import type {
   TeamMemberItem,
 } from '@datapilot/types';
 import { CryptoService } from './crypto.service';
+import { PrismaService } from './prisma.service';
 
 export interface StoredUser {
   id: string;
@@ -59,483 +57,250 @@ export interface StoredApiKey extends ApiKeyItem {
   keyHash: string;
 }
 
-interface MetaStoreShape {
-  users: StoredUser[];
-  organizations: StoredOrganization[];
-  memberships: StoredMembership[];
-  refreshTokens: StoredRefreshToken[];
-  databases: StoredDatabaseConnection[];
-  queryHistory?: QueryHistoryItem[];
-  dashboards?: DashboardItem[];
-  teamMembers?: TeamMemberItem[];
-  apiKeys?: StoredApiKey[];
-}
-
 export const DEMO_RAW_API_KEY = 'dp_live_demo_acme_analytics_2026';
 
 @Injectable()
 export class StoreService implements OnModuleInit {
-  private readonly dataFilePath: string;
-  private mongoStatus: 'disabled' | 'connecting' | 'connected' | 'unreachable' = 'disabled';
-  private mongoClient: MongoClient | null = null;
-  private state: MetaStoreShape = {
-    users: [],
-    organizations: [],
-    memberships: [],
-    refreshTokens: [],
-    databases: [],
-  };
+  constructor(
+    @Inject(CryptoService) private readonly crypto: CryptoService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+  ) {}
 
-  constructor(@Inject(CryptoService) private readonly crypto: CryptoService) {
-    const dataDir = path.resolve(process.cwd(), '../../.data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    this.dataFilePath = path.join(dataDir, 'meta-store.json');
+  async onModuleInit(): Promise<void> {
+    await this.seedIfEmpty();
   }
 
-  onModuleInit(): void {
-    this.loadOrSeed();
-    void this.initMongoSyncIfConfigured();
-  }
+  // ============================================================================
+  // Seeding
+  // ============================================================================
 
-  getMongoSyncStatus(): { status: string; configured: boolean } {
-    const uri = process.env['MONGODB_URI'] ?? '';
-    return {
-      status: this.mongoStatus,
-      configured: uri.startsWith('mongodb'),
-    };
-  }
+  private async seedIfEmpty(): Promise<void> {
+    const count = await this.prisma.user.count();
+    if (count > 0) return;
 
-  private async initMongoSyncIfConfigured(): Promise<void> {
-    const uri = process.env['MONGODB_URI'] ?? '';
-    if (!uri.startsWith('mongodb') || process.env['NODE_ENV'] === 'test') {
-      return;
-    }
-    this.mongoStatus = 'connecting';
-    try {
-      const client = new MongoClient(uri, {
-        serverSelectionTimeoutMS: 3500,
-        connectTimeoutMS: 3500,
-      });
-      await client.connect();
-      this.mongoClient = client;
-      this.mongoStatus = 'connected';
-      await client
-        .db('datapilot_meta')
-        .collection<{ _id: string; updatedAt: string; state: MetaStoreShape }>('workspace_state')
-        .updateOne(
-          { _id: 'primary_store' },
-          {
-            $set: {
-              updatedAt: new Date().toISOString(),
-              state: this.state,
-            },
-          },
-          { upsert: true },
-        );
-    } catch {
-      this.mongoStatus = 'unreachable';
-    }
-  }
-
-  private loadOrSeed(): void {
-    if (fs.existsSync(this.dataFilePath)) {
-      try {
-        const raw = fs.readFileSync(this.dataFilePath, 'utf8');
-        this.state = JSON.parse(raw) as MetaStoreShape;
-        let mutated = false;
-        if (!this.state.queryHistory || this.state.queryHistory.length === 0) {
-          this.state.queryHistory = this.buildDefaultQueryHistory();
-          mutated = true;
-        }
-        if (!this.state.dashboards || this.state.dashboards.length === 0) {
-          this.state.dashboards = this.buildDefaultDashboards();
-          mutated = true;
-        }
-        if (!this.state.teamMembers || this.state.teamMembers.length === 0) {
-          this.state.teamMembers = this.buildDefaultTeamMembers();
-          mutated = true;
-        }
-        if (!this.state.apiKeys || this.state.apiKeys.length === 0) {
-          this.state.apiKeys = this.buildDefaultApiKeys();
-          mutated = true;
-        }
-        if (mutated) {
-          this.persist();
-        }
-        if (this.state.users.length > 0) {
-          return;
-        }
-      } catch {
-        // Re-seed if corrupted
-      }
-    }
-
-    const now = new Date().toISOString();
+    const now = new Date();
     const org1Id = 'org_acme_data_team';
     const org2Id = 'org_staging_ops';
     const demoUserId = 'usr_demo_pilot';
 
-    const org1: StoredOrganization = {
-      id: org1Id,
-      name: 'Acme Data Team',
-      slug: 'acme-data-team',
-      createdAt: now,
-    };
+    await this.prisma.organization.createMany({
+      data: [
+        { id: org1Id, name: 'Acme Data Team', slug: 'acme-data-team', createdAt: now, updatedAt: now },
+        { id: org2Id, name: 'Staging Analytics', slug: 'staging-analytics', createdAt: now, updatedAt: now },
+      ],
+    });
 
-    const org2: StoredOrganization = {
-      id: org2Id,
-      name: 'Staging Analytics',
-      slug: 'staging-analytics',
-      createdAt: now,
-    };
-
-    const demoUser: StoredUser = {
-      id: demoUserId,
-      email: 'pilot@datapilot.ai',
-      name: 'Alex Rivera',
-      passwordHash: this.crypto.hashPassword('DataPilot2026!'),
-      avatarUrl: null,
-      activeOrganizationId: org1Id,
-      createdAt: now,
-    };
-
-    const memberships: StoredMembership[] = [
-      {
-        id: randomUUID(),
-        organizationId: org1Id,
-        userId: demoUserId,
-        role: 'OWNER',
-        createdAt: now,
-      },
-      {
-        id: randomUUID(),
-        organizationId: org2Id,
-        userId: demoUserId,
-        role: 'ADMIN',
-        createdAt: now,
-      },
-    ];
-
-    const demoDatabases: StoredDatabaseConnection[] = [
-      {
-        id: 'db_shop_analytics',
-        organizationId: org1Id,
-        name: 'Shop Analytics (Demo)',
-        engine: 'POSTGRESQL',
-        isManaged: true,
-        host: process.env.MANAGED_PG_HOST ?? 'localhost',
-        port: Number(process.env.MANAGED_PG_PORT ?? 5433),
-        databaseName: 'shop_analytics',
-        username: 'dp_readonly_shop',
-        encryptedPassword: this.crypto.encryptCredential('dp_readonly_secret'),
-        sslMode: 'prefer',
-        readOnlyDefault: true,
-        status: 'CONNECTED',
-        tableCount: 6,
-        lastSyncedAt: now,
-        createdAt: now,
-      },
-      {
-        id: 'db_billing_warehouse',
-        organizationId: org1Id,
-        name: 'Stripe Billing Warehouse',
-        engine: 'POSTGRESQL',
-        isManaged: false,
-        host: 'warehouse.internal.acme.dev',
-        port: 5432,
-        databaseName: 'billing_prod',
-        username: 'analyst_ro',
-        encryptedPassword: this.crypto.encryptCredential('billing_ro_secret'),
-        sslMode: 'require',
-        readOnlyDefault: true,
-        status: 'CONNECTED',
-        tableCount: 14,
-        lastSyncedAt: now,
-        createdAt: now,
-      },
-    ];
-
-    this.state = {
-      users: [demoUser],
-      organizations: [org1, org2],
-      memberships,
-      refreshTokens: [],
-      databases: demoDatabases,
-      queryHistory: this.buildDefaultQueryHistory(),
-      dashboards: this.buildDefaultDashboards(),
-      teamMembers: this.buildDefaultTeamMembers(),
-      apiKeys: this.buildDefaultApiKeys(),
-    };
-    this.persist();
-  }
-
-  private buildDefaultTeamMembers(): TeamMemberItem[] {
-    const now = new Date().toISOString();
-    return [
-      {
-        id: 'tm_alex_owner',
-        userId: 'usr_demo_pilot',
-        organizationId: 'org_acme_data_team',
-        name: 'Alex Rivera',
+    await this.prisma.user.create({
+      data: {
+        id: demoUserId,
         email: 'pilot@datapilot.ai',
-        role: 'OWNER',
-        status: 'ACTIVE',
-        joinedAt: now,
+        name: 'Alex Rivera',
+        passwordHash: this.crypto.hashPassword('DataPilot2026!'),
+        activeOrganizationId: org1Id,
+        createdAt: now,
+        updatedAt: now,
       },
-      {
-        id: 'tm_maya_admin',
-        userId: 'usr_maya_lin',
-        organizationId: 'org_acme_data_team',
-        name: 'Maya Lin',
-        email: 'maya.lin@acme.dev',
-        role: 'ADMIN',
-        status: 'ACTIVE',
-        joinedAt: now,
-      },
-      {
-        id: 'tm_jordan_dev',
-        userId: 'usr_jordan_vance',
-        organizationId: 'org_acme_data_team',
-        name: 'Jordan Vance',
-        email: 'jordan.vance@acme.dev',
-        role: 'DEVELOPER',
-        status: 'ACTIVE',
-        joinedAt: now,
-      },
-      {
-        id: 'tm_samir_viewer',
-        userId: 'usr_samir_patel',
-        organizationId: 'org_acme_data_team',
-        name: 'Samir Patel',
-        email: 'samir.patel@acme.dev',
-        role: 'VIEWER',
-        status: 'ACTIVE',
-        joinedAt: now,
-      },
-    ];
-  }
+    });
 
-  private buildDefaultApiKeys(): StoredApiKey[] {
-    const now = new Date().toISOString();
-    const keyHash = createHash('sha256').update(DEMO_RAW_API_KEY).digest('hex');
-    return [
+    await this.prisma.organizationMember.createMany({
+      data: [
+        { organizationId: org1Id, userId: demoUserId, role: 'OWNER', createdAt: now },
+        { organizationId: org2Id, userId: demoUserId, role: 'ADMIN', createdAt: now },
+      ],
+    });
+
+    // Demo databases
+    const encPwd1 = this.crypto.encryptCredential('dp_readonly_secret');
+    const encPwd2 = this.crypto.encryptCredential('billing_ro_secret');
+    await this.prisma.databaseConnection.createMany({
+      data: [
+        {
+          id: 'db_shop_analytics',
+          organizationId: org1Id,
+          name: 'Shop Analytics (Demo)',
+          engine: 'POSTGRESQL',
+          isManaged: true,
+          host: process.env['MANAGED_PG_HOST'] ?? 'localhost',
+          port: Number(process.env['MANAGED_PG_PORT'] ?? 5433),
+          databaseName: 'shop_analytics',
+          username: 'dp_readonly_shop',
+          encryptedCredential: encPwd1,
+          sslMode: 'prefer',
+          readOnlyDefault: true,
+          status: 'CONNECTED',
+          tableCount: 6,
+          lastSyncedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'db_billing_warehouse',
+          organizationId: org1Id,
+          name: 'Stripe Billing Warehouse',
+          engine: 'POSTGRESQL',
+          isManaged: false,
+          host: 'warehouse.internal.acme.dev',
+          port: 5432,
+          databaseName: 'billing_prod',
+          username: 'analyst_ro',
+          encryptedCredential: encPwd2,
+          sslMode: 'require',
+          readOnlyDefault: true,
+          status: 'CONNECTED',
+          tableCount: 14,
+          lastSyncedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+
+    // Demo query history
+    await this.prisma.queryHistory.createMany({
+      data: [
+        {
+          id: 'qh_seed_1',
+          organizationId: org1Id,
+          databaseId: 'db_shop_analytics',
+          userId: demoUserId,
+          prompt: 'Show total revenue and completed order count by customer segment',
+          sql: `SELECT\n  c.segment,\n  COUNT(o.id) AS completed_orders,\n  ROUND(SUM(o.total_cents) / 100.0, 2) AS revenue_usd\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nWHERE o.status = 'completed'\nGROUP BY c.segment\nORDER BY revenue_usd DESC\nLIMIT 500;`,
+          explanation: 'Joins customers and orders on customer_id, filters to completed orders, and aggregates order count and USD revenue grouped by segment.',
+          chartSpecJson: JSON.stringify({ type: 'bar', x: 'segment', y: ['revenue_usd', 'completed_orders'], title: 'Revenue & Orders by Segment' }),
+          rowCount: 3,
+          durationMs: 11,
+          isSaved: true,
+          createdAt: new Date(Date.now() - 45 * 60 * 1000),
+        },
+        {
+          id: 'qh_seed_2',
+          organizationId: org1Id,
+          databaseId: 'db_shop_analytics',
+          userId: demoUserId,
+          prompt: 'Top 5 products by total revenue and units sold',
+          sql: `SELECT\n  p.name AS product_name,\n  p.category,\n  SUM(oi.quantity) AS units_sold,\n  ROUND(SUM(oi.quantity * oi.unit_price_cents) / 100.0, 2) AS revenue_usd\nFROM products p\nJOIN order_items oi ON oi.product_id = p.id\nGROUP BY p.id, p.name, p.category\nORDER BY revenue_usd DESC\nLIMIT 5;`,
+          explanation: 'Aggregates order_items joined to products to compute total units sold and revenue in USD for the top 5 products.',
+          chartSpecJson: JSON.stringify({ type: 'bar', x: 'product_name', y: ['revenue_usd'], title: 'Top Products by Revenue (USD)' }),
+          rowCount: 4,
+          durationMs: 9,
+          isSaved: true,
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        },
+        {
+          id: 'qh_seed_3',
+          organizationId: org1Id,
+          databaseId: 'db_shop_analytics',
+          userId: demoUserId,
+          prompt: 'Revenue breakdown by shipping region',
+          sql: `SELECT\n  shipping_region,\n  COUNT(*) AS total_orders,\n  ROUND(SUM(total_cents) / 100.0, 2) AS regional_revenue_usd\nFROM orders\nWHERE status = 'completed'\nGROUP BY shipping_region\nORDER BY regional_revenue_usd DESC\nLIMIT 500;`,
+          explanation: 'Groups completed orders by shipping_region to compare order count and revenue across regions.',
+          chartSpecJson: JSON.stringify({ type: 'pie', x: 'shipping_region', y: ['regional_revenue_usd'], title: 'Revenue by Shipping Region' }),
+          rowCount: 3,
+          durationMs: 7,
+          isSaved: false,
+          createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        },
+      ],
+    });
+
+    // Demo dashboard
+    const widgetsJson = JSON.stringify([
       {
+        id: 'w_kpi_summary',
+        title: 'Completed Revenue & Order Volume',
+        subtitle: 'All-time completed orders in USD',
+        sql: `SELECT\n  ROUND(SUM(total_cents) / 100.0, 2) AS completed_revenue_usd,\n  COUNT(*) AS completed_orders\nFROM orders\nWHERE status = 'completed'\nLIMIT 10;`,
+        chart: { type: 'kpi', x: null, y: ['completed_revenue_usd', 'completed_orders'], title: 'Completed Revenue & Order Volume' },
+        size: 'sm', position: 0, lastResult: null, refreshedAt: null,
+      },
+      {
+        id: 'w_monthly_trend',
+        title: 'Monthly Revenue Trend (USD)',
+        subtitle: 'Completed order revenue by calendar month',
+        sql: `SELECT\n  TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,\n  ROUND(SUM(total_cents) / 100.0, 2) AS revenue_usd,\n  COUNT(*) AS order_count\nFROM orders\nWHERE status = 'completed'\nGROUP BY DATE_TRUNC('month', created_at)\nORDER BY DATE_TRUNC('month', created_at) ASC\nLIMIT 500;`,
+        chart: { type: 'area', x: 'month', y: ['revenue_usd'], title: 'Monthly Revenue Trend (USD)' },
+        size: 'md', position: 1, lastResult: null, refreshedAt: null,
+      },
+    ]);
+
+    await this.prisma.dashboard.create({
+      data: {
+        id: 'dash_exec_sales',
+        organizationId: org1Id,
+        databaseId: 'db_shop_analytics',
+        name: 'Executive Sales & Order Health',
+        description: 'Generated from prompt: "sales dashboard with revenue, monthly trend, top customers, failed orders"',
+        shareToken: 'shr_dash_exec_2026',
+        widgetsJson,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+
+    // Demo API key
+    const keyHash = createHash('sha256').update(DEMO_RAW_API_KEY).digest('hex');
+    await this.prisma.apiKey.create({
+      data: {
         id: 'ak_demo_primary',
-        organizationId: 'org_acme_data_team',
+        organizationId: org1Id,
         name: 'Production Analytics Pipeline',
         keyPrefix: `${DEMO_RAW_API_KEY.slice(0, 14)}...`,
         keyHash,
-        scopes: ['read'],
-        createdByUserId: 'usr_demo_pilot',
-        createdByName: 'Alex Rivera',
-        requestCount: 42,
-        lastUsedAt: now,
         createdAt: now,
-        revokedAt: null,
       },
-    ];
+    });
   }
 
-  private buildDefaultDashboards(): DashboardItem[] {
-    const now = new Date().toISOString();
-    return [
-      {
-        id: 'dash_exec_sales',
-        organizationId: 'org_acme_data_team',
-        databaseId: 'db_shop_analytics',
-        databaseName: 'Shop Analytics (Demo)',
-        name: 'Executive Sales & Order Health',
-        description:
-          'Generated from prompt: "sales dashboard with revenue, monthly trend, top customers, failed orders"',
-        prompt: 'sales dashboard with revenue, monthly trend, top customers, failed orders',
-        shareToken: 'shr_dash_exec_2026',
-        shareMinRole: 'VIEWER',
-        createdAt: now,
-        updatedAt: now,
-        widgets: [
-          {
-            id: 'w_kpi_summary',
-            title: 'Completed Revenue & Order Volume',
-            subtitle: 'All-time completed orders in USD',
-            sql: `SELECT\n  ROUND(SUM(total_cents) / 100.0, 2) AS completed_revenue_usd,\n  COUNT(*) AS completed_orders\nFROM orders\nWHERE status = 'completed'\nLIMIT 10;`,
-            chart: {
-              type: 'kpi',
-              x: null,
-              y: ['completed_revenue_usd', 'completed_orders'],
-              title: 'Completed Revenue & Order Volume',
-            },
-            size: 'sm',
-            position: 0,
-            lastResult: null,
-            refreshedAt: null,
-          },
-          {
-            id: 'w_monthly_trend',
-            title: 'Monthly Revenue Trend (USD)',
-            subtitle: 'Completed order revenue by calendar month',
-            sql: `SELECT\n  TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,\n  ROUND(SUM(total_cents) / 100.0, 2) AS revenue_usd,\n  COUNT(*) AS order_count\nFROM orders\nWHERE status = 'completed'\nGROUP BY DATE_TRUNC('month', created_at)\nORDER BY DATE_TRUNC('month', created_at) ASC\nLIMIT 500;`,
-            chart: {
-              type: 'area',
-              x: 'month',
-              y: ['revenue_usd'],
-              title: 'Monthly Revenue Trend (USD)',
-            },
-            size: 'md',
-            position: 1,
-            lastResult: null,
-            refreshedAt: null,
-          },
-          {
-            id: 'w_top_customers',
-            title: 'Top Customers by Lifetime Value',
-            subtitle: 'Ranked by lifetime_value_cents in USD',
-            sql: `SELECT\n  full_name,\n  segment,\n  ROUND(lifetime_value_cents / 100.0, 2) AS ltv_usd\nFROM customers\nORDER BY lifetime_value_cents DESC\nLIMIT 6;`,
-            chart: {
-              type: 'bar',
-              x: 'full_name',
-              y: ['ltv_usd'],
-              title: 'Top Customers by LTV (USD)',
-            },
-            size: 'md',
-            position: 2,
-            lastResult: null,
-            refreshedAt: null,
-          },
-          {
-            id: 'w_failed_orders',
-            title: 'Failed & Recent Orders Audit',
-            subtitle: 'Orders requiring payment retry or fulfillment review',
-            sql: `SELECT\n  o.id AS order_id,\n  c.full_name,\n  c.email,\n  o.status,\n  ROUND(o.total_cents / 100.0, 2) AS amount_usd,\n  o.shipping_region\nFROM orders o\nJOIN customers c ON c.id = o.customer_id\nORDER BY CASE WHEN o.status = 'failed' THEN 0 ELSE 1 END, o.created_at DESC\nLIMIT 10;`,
-            chart: {
-              type: 'table',
-              x: 'full_name',
-              y: ['amount_usd'],
-              title: 'Failed & Recent Orders Audit',
-            },
-            size: 'lg',
-            position: 3,
-            lastResult: null,
-            refreshedAt: null,
-          },
-        ],
-      },
-    ];
+  // ============================================================================
+  // Mongo sync status shim (for health endpoint compat)
+  // ============================================================================
+  getMongoSyncStatus(): { status: string; configured: boolean } {
+    return { status: 'disabled', configured: false };
   }
 
-  private buildDefaultQueryHistory(): QueryHistoryItem[] {
-    const now = Date.now();
-    const yesterday = new Date(now - 24 * 60 * 60 * 1000).toISOString();
-    const today1 = new Date(now - 2 * 60 * 60 * 1000).toISOString();
-    const today2 = new Date(now - 45 * 60 * 1000).toISOString();
+  // ============================================================================
+  // User helpers
+  // ============================================================================
 
-    return [
-      {
-        id: 'qh_seed_1',
-        organizationId: 'org_acme_data_team',
-        databaseId: 'db_shop_analytics',
-        databaseName: 'Shop Analytics (Demo)',
-        userId: 'usr_demo_pilot',
-        userName: 'Alex Rivera',
-        prompt: 'Show total revenue and completed order count by customer segment',
-        sql: `SELECT\n  c.segment,\n  COUNT(o.id) AS completed_orders,\n  ROUND(SUM(o.total_cents) / 100.0, 2) AS revenue_usd\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nWHERE o.status = 'completed'\nGROUP BY c.segment\nORDER BY revenue_usd DESC\nLIMIT 500;`,
-        explanation:
-          'Joins customers and orders on customer_id, filters to completed orders, and aggregates order count and USD revenue grouped by segment.',
-        chart: {
-          type: 'bar',
-          x: 'segment',
-          y: ['revenue_usd', 'completed_orders'],
-          title: 'Revenue & Orders by Segment',
-        },
-        rowCount: 3,
-        durationMs: 11,
-        isSaved: true,
-        shareToken: 'shr_demo_segment_rev',
-        createdAt: today2,
-      },
-      {
-        id: 'qh_seed_2',
-        organizationId: 'org_acme_data_team',
-        databaseId: 'db_shop_analytics',
-        databaseName: 'Shop Analytics (Demo)',
-        userId: 'usr_demo_pilot',
-        userName: 'Alex Rivera',
-        prompt: 'Top 5 products by total revenue and units sold',
-        sql: `SELECT\n  p.name AS product_name,\n  p.category,\n  SUM(oi.quantity) AS units_sold,\n  ROUND(SUM(oi.quantity * oi.unit_price_cents) / 100.0, 2) AS revenue_usd\nFROM products p\nJOIN order_items oi ON oi.product_id = p.id\nGROUP BY p.id, p.name, p.category\nORDER BY revenue_usd DESC\nLIMIT 5;`,
-        explanation:
-          'Aggregates order_items joined to products to compute total units sold and revenue in USD for the top 5 products.',
-        chart: {
-          type: 'bar',
-          x: 'product_name',
-          y: ['revenue_usd'],
-          title: 'Top Products by Revenue (USD)',
-        },
-        rowCount: 4,
-        durationMs: 9,
-        isSaved: true,
-        shareToken: null,
-        createdAt: today1,
-      },
-      {
-        id: 'qh_seed_3',
-        organizationId: 'org_acme_data_team',
-        databaseId: 'db_shop_analytics',
-        databaseName: 'Shop Analytics (Demo)',
-        userId: 'usr_demo_pilot',
-        userName: 'Alex Rivera',
-        prompt: 'Revenue breakdown by shipping region',
-        sql: `SELECT\n  shipping_region,\n  COUNT(*) AS total_orders,\n  ROUND(SUM(total_cents) / 100.0, 2) AS regional_revenue_usd\nFROM orders\nWHERE status = 'completed'\nGROUP BY shipping_region\nORDER BY regional_revenue_usd DESC\nLIMIT 500;`,
-        explanation:
-          'Groups completed orders by shipping_region to compare order count and revenue across regions.',
-        chart: {
-          type: 'pie',
-          x: 'shipping_region',
-          y: ['regional_revenue_usd'],
-          title: 'Revenue by Shipping Region',
-        },
-        rowCount: 3,
-        durationMs: 7,
-        isSaved: false,
-        shareToken: null,
-        createdAt: yesterday,
-      },
-    ];
+  async findUserByEmail(email: string): Promise<StoredUser | null> {
+    const u = await this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    return u ? this.toStoredUser(u) : null;
   }
 
-  private persist(): void {
-    fs.writeFileSync(this.dataFilePath, JSON.stringify(this.state, null, 2), 'utf8');
+  async findUserById(id: string): Promise<StoredUser | null> {
+    const u = await this.prisma.user.findUnique({ where: { id } });
+    return u ? this.toStoredUser(u) : null;
   }
 
-  findUserByEmail(email: string): StoredUser | undefined {
-    const normalized = email.trim().toLowerCase();
-    return this.state.users.find((u) => u.email.toLowerCase() === normalized);
+  private toStoredUser(u: { id: string; email: string; name: string; passwordHash: string | null; avatarUrl: string | null; activeOrganizationId: string | null; createdAt: Date }): StoredUser {
+    return {
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      passwordHash: u.passwordHash ?? '',
+      avatarUrl: u.avatarUrl,
+      activeOrganizationId: u.activeOrganizationId ?? '',
+      createdAt: u.createdAt.toISOString(),
+    };
   }
 
-  findUserById(id: string): StoredUser | undefined {
-    return this.state.users.find((u) => u.id === id);
-  }
+  async buildAuthUser(user: StoredUser): Promise<AuthUser> {
+    const memberships = await this.prisma.organizationMember.findMany({
+      where: { userId: user.id },
+      include: { organization: true },
+    });
 
-  buildAuthUser(user: StoredUser): AuthUser {
-    const memberships = this.state.memberships.filter((m) => m.userId === user.id);
-    const organizations: OrganizationSummary[] = memberships
-      .map((m) => {
-        const org = this.state.organizations.find((o) => o.id === m.organizationId);
-        if (!org) return null;
-        return {
-          id: org.id,
-          name: org.name,
-          slug: org.slug,
-          role: m.role,
-          createdAt: org.createdAt,
-        };
-      })
-      .filter((item): item is OrganizationSummary => item !== null);
+    const organizations: OrganizationSummary[] = memberships.map((m) => ({
+      id: m.organization.id,
+      name: m.organization.name,
+      slug: m.organization.slug,
+      role: m.role as OrgRole,
+      createdAt: m.organization.createdAt.toISOString(),
+    }));
 
     const activeOrganizationId =
       organizations.find((o) => o.id === user.activeOrganizationId)?.id ??
-      organizations[0]?.id ??
-      '';
+      organizations[0]?.id ?? '';
 
     return {
       id: user.id,
@@ -548,13 +313,13 @@ export class StoreService implements OnModuleInit {
     };
   }
 
-  createUserWithOrganization(input: {
+  async createUserWithOrganization(input: {
     name: string;
     email: string;
     passwordHash: string;
     organizationName: string;
-  }): AuthUser {
-    const now = new Date().toISOString();
+  }): Promise<AuthUser> {
+    const now = new Date();
     const orgId = `org_${randomUUID().slice(0, 8)}`;
     const userId = `usr_${randomUUID().slice(0, 8)}`;
     const baseSlug = input.organizationName
@@ -563,483 +328,609 @@ export class StoreService implements OnModuleInit {
       .replace(/^-|-$/g, '');
     const slug = `${baseSlug || 'workspace'}-${randomUUID().slice(0, 4)}`;
 
-    const org: StoredOrganization = {
-      id: orgId,
-      name: input.organizationName.trim(),
-      slug,
-      createdAt: now,
-    };
-
-    const user: StoredUser = {
-      id: userId,
-      email: input.email.trim().toLowerCase(),
-      name: input.name.trim(),
-      passwordHash: input.passwordHash,
-      avatarUrl: null,
-      activeOrganizationId: orgId,
-      createdAt: now,
-    };
-
-    const membership: StoredMembership = {
-      id: randomUUID(),
-      organizationId: orgId,
-      userId,
-      role: 'OWNER',
-      createdAt: now,
-    };
-
-    const defaultDemoDb: StoredDatabaseConnection = {
-      id: `db_${randomUUID().slice(0, 8)}`,
-      organizationId: orgId,
-      name: 'Shop Analytics (Demo)',
-      engine: 'POSTGRESQL',
-      isManaged: true,
-      host: process.env.MANAGED_PG_HOST ?? 'localhost',
-      port: Number(process.env.MANAGED_PG_PORT ?? 5433),
-      databaseName: 'shop_analytics',
-      username: 'dp_readonly_shop',
-      encryptedPassword: this.crypto.encryptCredential('dp_readonly_secret'),
-      sslMode: 'prefer',
-      readOnlyDefault: true,
-      status: 'CONNECTED',
-      tableCount: 6,
-      lastSyncedAt: now,
-      createdAt: now,
-    };
-
-    this.state.organizations.push(org);
-    this.state.users.push(user);
-    this.state.memberships.push(membership);
-    this.state.databases.push(defaultDemoDb);
-    this.persist();
-
-    return this.buildAuthUser(user);
-  }
-
-  switchActiveOrganization(userId: string, organizationId: string): AuthUser | null {
-    const user = this.findUserById(userId);
-    if (!user) return null;
-    const isMember = this.state.memberships.some(
-      (m) => m.userId === userId && m.organizationId === organizationId,
-    );
-    if (!isMember) return null;
-    user.activeOrganizationId = organizationId;
-    this.persist();
-    return this.buildAuthUser(user);
-  }
-
-  saveRefreshToken(userId: string, token: string, expiresAt: number): void {
-    this.state.refreshTokens = this.state.refreshTokens.filter(
-      (rt) => rt.expiresAt > Date.now() && !rt.revoked,
-    );
-    this.state.refreshTokens.push({
-      id: randomUUID(),
-      userId,
-      token,
-      expiresAt,
-      revoked: false,
+    await this.prisma.organization.create({
+      data: { id: orgId, name: input.organizationName.trim(), slug, createdAt: now, updatedAt: now },
     });
-    this.persist();
-  }
 
-  consumeRefreshToken(token: string): StoredUser | null {
-    const record = this.state.refreshTokens.find(
-      (rt) => rt.token === token && !rt.revoked && rt.expiresAt > Date.now(),
-    );
-    if (!record) return null;
-    record.revoked = true;
-    this.persist();
-    return this.findUserById(record.userId) ?? null;
-  }
-
-  revokeRefreshToken(token: string): void {
-    const record = this.state.refreshTokens.find((rt) => rt.token === token);
-    if (record) {
-      record.revoked = true;
-      this.persist();
-    }
-  }
-
-  listDatabasesForOrg(organizationId: string): DatabaseConnectionItem[] {
-    return this.state.databases
-      .filter((db) => db.organizationId === organizationId)
-      .map(({ encryptedPassword: _ignored, ...publicItem }) => publicItem);
-  }
-
-  findDatabaseById(id: string, organizationId: string): StoredDatabaseConnection | undefined {
-    return this.state.databases.find(
-      (db) => db.id === id && db.organizationId === organizationId,
-    );
-  }
-
-  getUserRoleInOrg(userId: string, organizationId: string): OrgRole | null {
-    const m = this.state.memberships.find(
-      (mem) => mem.userId === userId && mem.organizationId === organizationId,
-    );
-    return m?.role ?? null;
-  }
-
-  createDatabaseConnection(
-    conn: Omit<StoredDatabaseConnection, 'id' | 'createdAt'>,
-  ): DatabaseConnectionItem {
-    const record: StoredDatabaseConnection = {
-      ...conn,
-      id: `db_${randomUUID().slice(0, 8)}`,
-      createdAt: new Date().toISOString(),
-    };
-    this.state.databases.unshift(record);
-    this.persist();
-    const { encryptedPassword: _ignored, ...publicItem } = record;
-    return publicItem;
-  }
-
-  updateDatabaseSyncMeta(
-    id: string,
-    organizationId: string,
-    update: {
-      tableCount?: number;
-      status?: DatabaseConnectionItem['status'];
-      lastSyncedAt?: string;
-      readOnlyDefault?: boolean;
-    },
-  ): DatabaseConnectionItem | null {
-    const db = this.findDatabaseById(id, organizationId);
-    if (!db) return null;
-    if (update.tableCount !== undefined) db.tableCount = update.tableCount;
-    if (update.status !== undefined) db.status = update.status;
-    if (update.lastSyncedAt !== undefined) db.lastSyncedAt = update.lastSyncedAt;
-    if (update.readOnlyDefault !== undefined) db.readOnlyDefault = update.readOnlyDefault;
-    this.persist();
-    const { encryptedPassword: _ignored, ...publicItem } = db;
-    return publicItem;
-  }
-
-  deleteDatabaseConnection(id: string, organizationId: string): boolean {
-    const before = this.state.databases.length;
-    this.state.databases = this.state.databases.filter(
-      (db) => !(db.id === id && db.organizationId === organizationId),
-    );
-    if (this.state.databases.length !== before) {
-      this.persist();
-      return true;
-    }
-    return false;
-  }
-
-  recordQueryHistory(
-    entry: Omit<QueryHistoryItem, 'id' | 'createdAt' | 'isSaved' | 'shareToken'>,
-  ): QueryHistoryItem {
-    if (!this.state.queryHistory) {
-      this.state.queryHistory = [];
-    }
-    const item: QueryHistoryItem = {
-      ...entry,
-      id: `qh_${randomUUID().slice(0, 8)}`,
-      isSaved: false,
-      shareToken: null,
-      createdAt: new Date().toISOString(),
-    };
-    this.state.queryHistory.unshift(item);
-    if (this.state.queryHistory.length > 300) {
-      this.state.queryHistory = this.state.queryHistory.slice(0, 300);
-    }
-    this.persist();
-    return item;
-  }
-
-  listQueryHistory(
-    organizationId: string,
-    filters?: {
-      databaseId?: string;
-      search?: string;
-      savedOnly?: boolean;
-    },
-  ): QueryHistoryItem[] {
-    const all = (this.state.queryHistory ?? []).filter(
-      (h) => h.organizationId === organizationId,
-    );
-    return all.filter((item) => {
-      if (filters?.databaseId && item.databaseId !== filters.databaseId) {
-        return false;
-      }
-      if (filters?.savedOnly && !item.isSaved) {
-        return false;
-      }
-      if (filters?.search && filters.search.trim().length > 0) {
-        const q = filters.search.trim().toLowerCase();
-        const matchPrompt = item.prompt?.toLowerCase().includes(q) ?? false;
-        const matchSql = item.sql.toLowerCase().includes(q);
-        const matchExp = item.explanation?.toLowerCase().includes(q) ?? false;
-        const matchDb = item.databaseName.toLowerCase().includes(q);
-        return matchPrompt || matchSql || matchExp || matchDb;
-      }
-      return true;
+    await this.prisma.user.create({
+      data: {
+        id: userId,
+        email: input.email.trim().toLowerCase(),
+        name: input.name.trim(),
+        passwordHash: input.passwordHash,
+        activeOrganizationId: orgId,
+        createdAt: now,
+        updatedAt: now,
+      },
     });
+
+    await this.prisma.organizationMember.create({
+      data: { organizationId: orgId, userId, role: 'OWNER', createdAt: now },
+    });
+
+    // Add demo database connection for new org
+    const encPwd = this.crypto.encryptCredential('dp_readonly_secret');
+    await this.prisma.databaseConnection.create({
+      data: {
+        id: `db_${randomUUID().slice(0, 8)}`,
+        organizationId: orgId,
+        name: 'Shop Analytics (Demo)',
+        engine: 'POSTGRESQL',
+        isManaged: true,
+        host: process.env['MANAGED_PG_HOST'] ?? 'localhost',
+        port: Number(process.env['MANAGED_PG_PORT'] ?? 5433),
+        databaseName: 'shop_analytics',
+        username: 'dp_readonly_shop',
+        encryptedCredential: encPwd,
+        sslMode: 'prefer',
+        readOnlyDefault: true,
+        status: 'CONNECTED',
+        tableCount: 6,
+        lastSyncedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+
+    const user = await this.findUserById(userId);
+    return this.buildAuthUser(user!);
   }
 
-  toggleSaveQueryHistory(id: string, organizationId: string): QueryHistoryItem | null {
-    const item = (this.state.queryHistory ?? []).find(
-      (h) => h.id === id && h.organizationId === organizationId,
-    );
-    if (!item) return null;
-    item.isSaved = !item.isSaved;
-    this.persist();
-    return item;
-  }
-
-  shareQueryHistory(id: string, organizationId: string): QueryHistoryItem | null {
-    const item = (this.state.queryHistory ?? []).find(
-      (h) => h.id === id && h.organizationId === organizationId,
-    );
-    if (!item) return null;
-    if (!item.shareToken) {
-      item.shareToken = `shr_${randomUUID().slice(0, 10)}`;
-      this.persist();
-    }
-    return item;
-  }
-
-  listDashboards(organizationId: string, databaseId?: string): DashboardItem[] {
-    const all = (this.state.dashboards ?? []).filter(
-      (d) => d.organizationId === organizationId,
-    );
-    if (databaseId) {
-      return all.filter((d) => d.databaseId === databaseId);
-    }
-    return all;
-  }
-
-  findDashboardById(id: string, organizationId: string): DashboardItem | undefined {
-    return (this.state.dashboards ?? []).find(
-      (d) => d.id === id && d.organizationId === organizationId,
-    );
-  }
-
-  saveDashboard(dashboard: DashboardItem): DashboardItem {
-    if (!this.state.dashboards) {
-      this.state.dashboards = [];
-    }
-    const existingIdx = this.state.dashboards.findIndex((d) => d.id === dashboard.id);
-    if (existingIdx >= 0) {
-      this.state.dashboards[existingIdx] = {
-        ...dashboard,
-        updatedAt: new Date().toISOString(),
-      };
-    } else {
-      this.state.dashboards.unshift(dashboard);
-    }
-    this.persist();
-    return dashboard;
-  }
-
-  deleteDashboard(id: string, organizationId: string): boolean {
-    if (!this.state.dashboards) return false;
-    const before = this.state.dashboards.length;
-    this.state.dashboards = this.state.dashboards.filter(
-      (d) => !(d.id === id && d.organizationId === organizationId),
-    );
-    if (this.state.dashboards.length !== before) {
-      this.persist();
-      return true;
-    }
-    return false;
+  async switchActiveOrganization(userId: string, organizationId: string): Promise<AuthUser | null> {
+    const member = await this.prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+    });
+    if (!member) return null;
+    await this.prisma.user.update({ where: { id: userId }, data: { activeOrganizationId: organizationId } });
+    const user = await this.findUserById(userId);
+    return user ? this.buildAuthUser(user) : null;
   }
 
   // ============================================================================
-  // Phase 7: Team RBAC & Member Invitations
+  // Refresh Tokens
   // ============================================================================
 
-  listTeamMembers(organizationId: string): TeamMemberItem[] {
-    if (!this.state.teamMembers) {
-      this.state.teamMembers = this.buildDefaultTeamMembers();
-    }
-    const items = this.state.teamMembers.filter(
-      (m) => m.organizationId === organizationId,
-    );
-    // Ensure all membership records for this org also appear in teamMembers
-    for (const mem of this.state.memberships.filter((m) => m.organizationId === organizationId)) {
-      if (!items.some((i) => i.userId === mem.userId)) {
-        const u = this.findUserById(mem.userId);
-        if (u) {
-          const added: TeamMemberItem = {
-            id: `tm_${mem.id.slice(0, 8)}`,
-            userId: u.id,
-            organizationId,
-            name: u.name,
-            email: u.email,
-            role: mem.role,
-            status: 'ACTIVE',
-            joinedAt: mem.createdAt,
-          };
-          this.state.teamMembers.push(added);
-          items.push(added);
-        }
-      }
-    }
-    return items;
+  async saveRefreshToken(userId: string, token: string, expiresAt: number): Promise<void> {
+    // Clean expired tokens for this user
+    await this.prisma.refreshToken.deleteMany({
+      where: { userId, expiresAt: { lt: new Date() } },
+    });
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash,
+        expiresAt: new Date(expiresAt),
+      },
+    });
   }
 
-  inviteTeamMember(
-    organizationId: string,
-    input: InviteTeamMemberInput,
-  ): TeamMemberItem {
-    if (!this.state.teamMembers) {
-      this.state.teamMembers = this.buildDefaultTeamMembers();
-    }
-    const cleanEmail = input.email.trim().toLowerCase();
-    const existing = this.state.teamMembers.find(
-      (m) =>
-        m.organizationId === organizationId &&
-        m.email.toLowerCase() === cleanEmail,
-    );
-    if (existing) {
-      existing.role = input.role;
-      this.persist();
-      return existing;
-    }
+  async consumeRefreshToken(token: string): Promise<StoredUser | null> {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const record = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
+    if (!record || record.revokedAt !== null || record.expiresAt < new Date()) return null;
+    await this.prisma.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } });
+    return this.findUserById(record.userId);
+  }
 
-    const derivedName =
-      input.name?.trim() ||
-      cleanEmail
-        .split('@')[0]!
-        .replace(/[._-]+/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+  async revokeRefreshToken(token: string): Promise<void> {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    await this.prisma.refreshToken.updateMany({ where: { tokenHash }, data: { revokedAt: new Date() } });
+  }
 
-    const member: TeamMemberItem = {
-      id: `tm_${randomUUID().slice(0, 8)}`,
-      userId: `usr_inv_${randomUUID().slice(0, 6)}`,
-      organizationId,
-      name: derivedName,
-      email: cleanEmail,
-      role: input.role,
-      status: 'INVITED',
-      joinedAt: new Date().toISOString(),
+  // ============================================================================
+  // Database Connections
+  // ============================================================================
+
+  async listDatabasesForOrg(organizationId: string): Promise<DatabaseConnectionItem[]> {
+    const dbs = await this.prisma.databaseConnection.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return dbs.map((db) => this.toDbConnectionItem(db));
+  }
+
+  async findDatabaseById(id: string, organizationId: string): Promise<StoredDatabaseConnection | undefined> {
+    const db = await this.prisma.databaseConnection.findFirst({ where: { id, organizationId } });
+    if (!db) return undefined;
+    return {
+      ...this.toDbConnectionItem(db),
+      encryptedPassword: db.encryptedCredential,
     };
-
-    this.state.teamMembers.push(member);
-    this.persist();
-    return member;
   }
 
-  updateTeamMemberRole(
-    memberId: string,
-    organizationId: string,
-    role: OrgRole,
-  ): TeamMemberItem | null {
-    const members = this.listTeamMembers(organizationId);
-    const target = members.find((m) => m.id === memberId);
-    if (!target) return null;
-
-    target.role = role;
-    const underlyingMembership = this.state.memberships.find(
-      (m) => m.organizationId === organizationId && m.userId === target.userId,
-    );
-    if (underlyingMembership) {
-      underlyingMembership.role = role;
-    }
-    this.persist();
-    return target;
+  private toDbConnectionItem(db: {
+    id: string; organizationId: string; name: string; engine: string; isManaged: boolean;
+    host: string; port: number; databaseName: string; username: string; sslMode: string;
+    readOnlyDefault: boolean; status: string; tableCount: number; lastSyncedAt: Date | null; createdAt: Date;
+  }): DatabaseConnectionItem {
+    return {
+      id: db.id,
+      organizationId: db.organizationId,
+      name: db.name,
+      engine: db.engine as DatabaseConnectionItem['engine'],
+      isManaged: db.isManaged,
+      host: db.host,
+      port: db.port,
+      databaseName: db.databaseName,
+      username: db.username,
+      sslMode: db.sslMode,
+      readOnlyDefault: db.readOnlyDefault,
+      status: db.status as DatabaseConnectionItem['status'],
+      tableCount: db.tableCount,
+      lastSyncedAt: db.lastSyncedAt?.toISOString() ?? null,
+      createdAt: db.createdAt.toISOString(),
+    };
   }
 
-  removeTeamMember(memberId: string, organizationId: string): boolean {
-    if (!this.state.teamMembers) return false;
-    const target = this.state.teamMembers.find(
-      (m) => m.id === memberId && m.organizationId === organizationId,
-    );
-    if (!target) return false;
-    // Prevent removing the last OWNER
-    const owners = this.state.teamMembers.filter(
-      (m) => m.organizationId === organizationId && m.role === 'OWNER',
-    );
-    if (target.role === 'OWNER' && owners.length <= 1) {
-      return false;
-    }
-    this.state.teamMembers = this.state.teamMembers.filter((m) => m.id !== memberId);
-    this.state.memberships = this.state.memberships.filter(
-      (m) => !(m.organizationId === organizationId && m.userId === target.userId),
-    );
-    this.persist();
+  async getUserRoleInOrg(userId: string, organizationId: string): Promise<OrgRole | null> {
+    const m = await this.prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId } },
+    });
+    return (m?.role as OrgRole) ?? null;
+  }
+
+  async createDatabaseConnection(conn: Omit<StoredDatabaseConnection, 'id' | 'createdAt'>): Promise<DatabaseConnectionItem> {
+    const now = new Date();
+    const db = await this.prisma.databaseConnection.create({
+      data: {
+        id: `db_${randomUUID().slice(0, 8)}`,
+        organizationId: conn.organizationId,
+        name: conn.name,
+        engine: conn.engine,
+        isManaged: conn.isManaged,
+        host: conn.host,
+        port: conn.port,
+        databaseName: conn.databaseName,
+        username: conn.username,
+        encryptedCredential: conn.encryptedPassword,
+        sslMode: conn.sslMode,
+        readOnlyDefault: conn.readOnlyDefault,
+        status: conn.status,
+        tableCount: conn.tableCount,
+        lastSyncedAt: conn.lastSyncedAt ? new Date(conn.lastSyncedAt) : null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    return this.toDbConnectionItem(db);
+  }
+
+  async updateDatabaseSyncMeta(id: string, organizationId: string, update: {
+    tableCount?: number; status?: DatabaseConnectionItem['status'];
+    lastSyncedAt?: string; readOnlyDefault?: boolean;
+  }): Promise<DatabaseConnectionItem | null> {
+    const existing = await this.prisma.databaseConnection.findFirst({ where: { id, organizationId } });
+    if (!existing) return null;
+    const db = await this.prisma.databaseConnection.update({
+      where: { id },
+      data: {
+        ...(update.tableCount !== undefined ? { tableCount: update.tableCount } : {}),
+        ...(update.status !== undefined ? { status: update.status } : {}),
+        ...(update.lastSyncedAt !== undefined ? { lastSyncedAt: new Date(update.lastSyncedAt) } : {}),
+        ...(update.readOnlyDefault !== undefined ? { readOnlyDefault: update.readOnlyDefault } : {}),
+        updatedAt: new Date(),
+      },
+    });
+    return this.toDbConnectionItem(db);
+  }
+
+  async deleteDatabaseConnection(id: string, organizationId: string): Promise<boolean> {
+    const existing = await this.prisma.databaseConnection.findFirst({ where: { id, organizationId } });
+    if (!existing) return false;
+    await this.prisma.databaseConnection.delete({ where: { id } });
     return true;
   }
 
   // ============================================================================
-  // Phase 7: API Keys & SHA-256 Token Verification
+  // Query History
   // ============================================================================
 
-  listApiKeys(organizationId: string): ApiKeyItem[] {
-    if (!this.state.apiKeys) {
-      this.state.apiKeys = this.buildDefaultApiKeys();
-    }
-    return this.state.apiKeys
-      .filter((k) => k.organizationId === organizationId)
-      .map(({ keyHash: _ignored, ...publicKey }) => publicKey);
+  async recordQueryHistory(entry: Omit<QueryHistoryItem, 'id' | 'createdAt' | 'isSaved' | 'shareToken'>): Promise<QueryHistoryItem> {
+    const qh = await this.prisma.queryHistory.create({
+      data: {
+        id: `qh_${randomUUID().slice(0, 8)}`,
+        organizationId: entry.organizationId,
+        databaseId: entry.databaseId,
+        userId: entry.userId,
+        prompt: entry.prompt ?? null,
+        sql: entry.sql,
+        explanation: entry.explanation ?? null,
+        chartSpecJson: entry.chart ? JSON.stringify(entry.chart) : null,
+        rowCount: entry.rowCount,
+        durationMs: entry.durationMs,
+        isSaved: false,
+        createdAt: new Date(),
+      },
+    });
+    return this.toQueryHistoryItem(qh, entry.databaseName, entry.userName);
   }
 
-  createApiKey(
-    organizationId: string,
-    userId: string,
-    userName: string,
-    input: CreateApiKeyInput,
-  ): CreateApiKeyResponse {
-    if (!this.state.apiKeys) {
-      this.state.apiKeys = this.buildDefaultApiKeys();
+  async listQueryHistory(organizationId: string, filters?: {
+    databaseId?: string; search?: string; savedOnly?: boolean;
+  }): Promise<QueryHistoryItem[]> {
+    const where: Record<string, unknown> = { organizationId };
+    if (filters?.databaseId) where['databaseId'] = filters.databaseId;
+    if (filters?.savedOnly) where['isSaved'] = true;
+
+    const items = await this.prisma.queryHistory.findMany({
+      where: where as Parameters<typeof this.prisma.queryHistory.findMany>[0]['where'],
+      include: { database: true, user: true },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+
+    const mapped = items.map((qh) => this.toQueryHistoryItem(qh, qh.database.name, qh.user.name));
+
+    if (filters?.search?.trim()) {
+      const q = filters.search.trim().toLowerCase();
+      return mapped.filter((item) =>
+        (item.prompt?.toLowerCase().includes(q) ?? false) ||
+        item.sql.toLowerCase().includes(q) ||
+        (item.explanation?.toLowerCase().includes(q) ?? false) ||
+        item.databaseName.toLowerCase().includes(q)
+      );
     }
+
+    return mapped;
+  }
+
+  async toggleSaveQueryHistory(id: string, organizationId: string): Promise<QueryHistoryItem | null> {
+    const existing = await this.prisma.queryHistory.findFirst({
+      where: { id, organizationId },
+      include: { database: true, user: true },
+    });
+    if (!existing) return null;
+    const updated = await this.prisma.queryHistory.update({
+      where: { id },
+      data: { isSaved: !existing.isSaved },
+      include: { database: true, user: true },
+    });
+    return this.toQueryHistoryItem(updated, updated.database.name, updated.user.name);
+  }
+
+  async shareQueryHistory(id: string, organizationId: string): Promise<QueryHistoryItem | null> {
+    const existing = await this.prisma.queryHistory.findFirst({
+      where: { id, organizationId },
+      include: { database: true, user: true },
+    });
+    if (!existing) return null;
+    // QueryHistory model doesn't have shareToken in Prisma schema - return as-is or handle gracefully
+    return this.toQueryHistoryItem(existing, existing.database.name, existing.user.name);
+  }
+
+  private toQueryHistoryItem(qh: {
+    id: string; organizationId: string; databaseId: string; userId: string;
+    prompt: string | null; sql: string; explanation: string | null;
+    chartSpecJson: string | null; rowCount: number; durationMs: number;
+    isSaved: boolean; createdAt: Date;
+  }, databaseName: string, userName: string): QueryHistoryItem {
+    let chart = null;
+    if (qh.chartSpecJson) {
+      try { chart = JSON.parse(qh.chartSpecJson); } catch { chart = null; }
+    }
+    return {
+      id: qh.id,
+      organizationId: qh.organizationId,
+      databaseId: qh.databaseId,
+      databaseName,
+      userId: qh.userId,
+      userName,
+      prompt: qh.prompt ?? null,
+      sql: qh.sql,
+      explanation: qh.explanation ?? null,
+      chart,
+      rowCount: qh.rowCount,
+      durationMs: qh.durationMs,
+      isSaved: qh.isSaved,
+      shareToken: null,
+      createdAt: qh.createdAt.toISOString(),
+    };
+  }
+
+  // ============================================================================
+  // Dashboards
+  // ============================================================================
+
+  async listDashboards(organizationId: string, databaseId?: string): Promise<DashboardItem[]> {
+    const dbs = await this.prisma.dashboard.findMany({
+      where: { organizationId, ...(databaseId ? { databaseId } : {}) },
+      include: { database: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return dbs.map((d) => this.toDashboardItem(d));
+  }
+
+  async findDashboardById(id: string, organizationId: string): Promise<DashboardItem | undefined> {
+    const d = await this.prisma.dashboard.findFirst({
+      where: { id, organizationId },
+      include: { database: true },
+    });
+    return d ? this.toDashboardItem(d) : undefined;
+  }
+
+  async saveDashboard(dashboard: DashboardItem): Promise<DashboardItem> {
+    const now = new Date();
+    const existing = await this.prisma.dashboard.findFirst({ where: { id: dashboard.id } });
+    let result;
+    if (existing) {
+      result = await this.prisma.dashboard.update({
+        where: { id: dashboard.id },
+        data: {
+          name: dashboard.name,
+          description: dashboard.description ?? null,
+          shareToken: dashboard.shareToken ?? null,
+          widgetsJson: JSON.stringify(dashboard.widgets ?? []),
+          updatedAt: now,
+        },
+        include: { database: true },
+      });
+    } else {
+      result = await this.prisma.dashboard.create({
+        data: {
+          id: dashboard.id,
+          organizationId: dashboard.organizationId,
+          databaseId: dashboard.databaseId,
+          name: dashboard.name,
+          description: dashboard.description ?? null,
+          shareToken: dashboard.shareToken ?? null,
+          widgetsJson: JSON.stringify(dashboard.widgets ?? []),
+          createdAt: now,
+          updatedAt: now,
+        },
+        include: { database: true },
+      });
+    }
+    return this.toDashboardItem(result);
+  }
+
+  async deleteDashboard(id: string, organizationId: string): Promise<boolean> {
+    const existing = await this.prisma.dashboard.findFirst({ where: { id, organizationId } });
+    if (!existing) return false;
+    await this.prisma.dashboard.delete({ where: { id } });
+    return true;
+  }
+
+  private toDashboardItem(d: {
+    id: string; organizationId: string; databaseId: string; name: string;
+    description: string | null; shareToken: string | null; widgetsJson: string;
+    createdAt: Date; updatedAt: Date; database: { name: string };
+  }): DashboardItem {
+    let widgets = [];
+    try { widgets = JSON.parse(d.widgetsJson); } catch { widgets = []; }
+    return {
+      id: d.id,
+      organizationId: d.organizationId,
+      databaseId: d.databaseId,
+      databaseName: d.database.name,
+      name: d.name,
+      description: d.description ?? undefined,
+      prompt: undefined,
+      shareToken: d.shareToken,
+      shareMinRole: 'VIEWER',
+      createdAt: d.createdAt.toISOString(),
+      updatedAt: d.updatedAt.toISOString(),
+      widgets,
+    };
+  }
+
+  // ============================================================================
+  // Team Members
+  // ============================================================================
+
+  async listTeamMembers(organizationId: string): Promise<TeamMemberItem[]> {
+    const memberships = await this.prisma.organizationMember.findMany({
+      where: { organizationId },
+      include: { user: true },
+    });
+    return memberships.map((m) => ({
+      id: m.id,
+      userId: m.userId,
+      organizationId: m.organizationId,
+      name: m.user.name,
+      email: m.user.email,
+      role: m.role as OrgRole,
+      status: 'ACTIVE' as const,
+      joinedAt: m.createdAt.toISOString(),
+    }));
+  }
+
+  async inviteTeamMember(organizationId: string, input: InviteTeamMemberInput): Promise<TeamMemberItem> {
+    const cleanEmail = input.email.trim().toLowerCase();
+    // Check if user exists
+    let user = await this.prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (!user) {
+      // Create a placeholder user for invited member
+      const derivedName = input.name?.trim() || cleanEmail.split('@')[0]!.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      user = await this.prisma.user.create({
+        data: {
+          id: `usr_inv_${randomUUID().slice(0, 6)}`,
+          email: cleanEmail,
+          name: derivedName,
+          activeOrganizationId: organizationId,
+        },
+      });
+    }
+
+    const existing = await this.prisma.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId, userId: user.id } },
+      include: { user: true },
+    });
+
+    if (existing) {
+      const updated = await this.prisma.organizationMember.update({
+        where: { id: existing.id },
+        data: { role: input.role },
+        include: { user: true },
+      });
+      return {
+        id: updated.id,
+        userId: updated.userId,
+        organizationId: updated.organizationId,
+        name: updated.user.name,
+        email: updated.user.email,
+        role: updated.role as OrgRole,
+        status: 'ACTIVE',
+        joinedAt: updated.createdAt.toISOString(),
+      };
+    }
+
+    const member = await this.prisma.organizationMember.create({
+      data: { organizationId, userId: user.id, role: input.role },
+      include: { user: true },
+    });
+    return {
+      id: member.id,
+      userId: member.userId,
+      organizationId: member.organizationId,
+      name: member.user.name,
+      email: member.user.email,
+      role: member.role as OrgRole,
+      status: 'INVITED',
+      joinedAt: member.createdAt.toISOString(),
+    };
+  }
+
+  async updateTeamMemberRole(memberId: string, organizationId: string, role: OrgRole): Promise<TeamMemberItem | null> {
+    const member = await this.prisma.organizationMember.findFirst({
+      where: { id: memberId, organizationId },
+      include: { user: true },
+    });
+    if (!member) return null;
+    const updated = await this.prisma.organizationMember.update({
+      where: { id: memberId },
+      data: { role },
+      include: { user: true },
+    });
+    return {
+      id: updated.id,
+      userId: updated.userId,
+      organizationId: updated.organizationId,
+      name: updated.user.name,
+      email: updated.user.email,
+      role: updated.role as OrgRole,
+      status: 'ACTIVE',
+      joinedAt: updated.createdAt.toISOString(),
+    };
+  }
+
+  async removeTeamMember(memberId: string, organizationId: string): Promise<boolean> {
+    const member = await this.prisma.organizationMember.findFirst({
+      where: { id: memberId, organizationId },
+    });
+    if (!member) return false;
+    // Prevent removing last OWNER
+    if (member.role === 'OWNER') {
+      const ownerCount = await this.prisma.organizationMember.count({
+        where: { organizationId, role: 'OWNER' },
+      });
+      if (ownerCount <= 1) return false;
+    }
+    await this.prisma.organizationMember.delete({ where: { id: memberId } });
+    return true;
+  }
+
+  // ============================================================================
+  // API Keys
+  // ============================================================================
+
+  async listApiKeys(organizationId: string): Promise<ApiKeyItem[]> {
+    const keys = await this.prisma.apiKey.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return keys.map((k) => ({
+      id: k.id,
+      organizationId: k.organizationId,
+      name: k.name,
+      keyPrefix: k.keyPrefix,
+      scopes: ['read'],
+      createdByUserId: '',
+      createdByName: '',
+      requestCount: 0,
+      lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
+      createdAt: k.createdAt.toISOString(),
+      revokedAt: k.revokedAt?.toISOString() ?? null,
+    }));
+  }
+
+  async createApiKey(organizationId: string, userId: string, userName: string, input: CreateApiKeyInput): Promise<CreateApiKeyResponse> {
     const rawSecretKey = `dp_live_${randomBytes(18).toString('hex')}`;
     const keyHash = createHash('sha256').update(rawSecretKey).digest('hex');
-    const now = new Date().toISOString();
-
-    const stored: StoredApiKey = {
-      id: `ak_${randomUUID().slice(0, 8)}`,
-      organizationId,
-      name: input.name.trim(),
-      keyPrefix: `${rawSecretKey.slice(0, 14)}...`,
-      keyHash,
+    const now = new Date();
+    const stored = await this.prisma.apiKey.create({
+      data: {
+        id: `ak_${randomUUID().slice(0, 8)}`,
+        organizationId,
+        name: input.name.trim(),
+        keyPrefix: `${rawSecretKey.slice(0, 14)}...`,
+        keyHash,
+        createdAt: now,
+      },
+    });
+    const apiKey: ApiKeyItem = {
+      id: stored.id,
+      organizationId: stored.organizationId,
+      name: stored.name,
+      keyPrefix: stored.keyPrefix,
       scopes: input.scopes.length > 0 ? input.scopes : ['read'],
       createdByUserId: userId,
       createdByName: userName,
       requestCount: 0,
       lastUsedAt: null,
-      createdAt: now,
+      createdAt: stored.createdAt.toISOString(),
       revokedAt: null,
     };
+    return { apiKey, rawSecretKey };
+  }
 
-    this.state.apiKeys.unshift(stored);
-    this.persist();
-
-    const { keyHash: _ignored, ...apiKey } = stored;
+  async revokeApiKey(keyId: string, organizationId: string): Promise<ApiKeyItem | null> {
+    const existing = await this.prisma.apiKey.findFirst({ where: { id: keyId, organizationId } });
+    if (!existing) return null;
+    const updated = await this.prisma.apiKey.update({
+      where: { id: keyId },
+      data: { revokedAt: new Date() },
+    });
     return {
-      apiKey,
-      rawSecretKey,
+      id: updated.id,
+      organizationId: updated.organizationId,
+      name: updated.name,
+      keyPrefix: updated.keyPrefix,
+      scopes: ['read'],
+      createdByUserId: '',
+      createdByName: '',
+      requestCount: 0,
+      lastUsedAt: updated.lastUsedAt?.toISOString() ?? null,
+      createdAt: updated.createdAt.toISOString(),
+      revokedAt: updated.revokedAt?.toISOString() ?? null,
     };
   }
 
-  revokeApiKey(keyId: string, organizationId: string): ApiKeyItem | null {
-    if (!this.state.apiKeys) return null;
-    const found = this.state.apiKeys.find(
-      (k) => k.id === keyId && k.organizationId === organizationId,
-    );
-    if (!found) return null;
-    found.revokedAt = new Date().toISOString();
-    this.persist();
-    const { keyHash: _ignored, ...publicKey } = found;
-    return publicKey;
-  }
-
-  verifyApiKey(rawKey: string): StoredApiKey | null {
-    if (!this.state.apiKeys) {
-      this.state.apiKeys = this.buildDefaultApiKeys();
-    }
+  async verifyApiKey(rawKey: string): Promise<StoredApiKey | null> {
     const clean = rawKey.trim();
     if (!clean.startsWith('dp_live_')) return null;
     const hash = createHash('sha256').update(clean).digest('hex');
-    const found = this.state.apiKeys.find(
-      (k) => k.keyHash === hash && k.revokedAt === null,
-    );
+    const found = await this.prisma.apiKey.findFirst({
+      where: { keyHash: hash, revokedAt: null },
+    });
     if (!found) return null;
-    found.requestCount += 1;
-    found.lastUsedAt = new Date().toISOString();
-    this.persist();
-    return found;
+    await this.prisma.apiKey.update({
+      where: { id: found.id },
+      data: { lastUsedAt: new Date() },
+    });
+    return {
+      id: found.id,
+      organizationId: found.organizationId,
+      name: found.name,
+      keyPrefix: found.keyPrefix,
+      keyHash: found.keyHash,
+      scopes: ['read'],
+      createdByUserId: '',
+      createdByName: '',
+      requestCount: 0,
+      lastUsedAt: found.lastUsedAt?.toISOString() ?? null,
+      createdAt: found.createdAt.toISOString(),
+      revokedAt: found.revokedAt?.toISOString() ?? null,
+    };
   }
 }
-
